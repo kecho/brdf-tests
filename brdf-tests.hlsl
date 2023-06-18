@@ -1,54 +1,11 @@
+#include "brdf.hlsl"
+
 RWTexture2D<float4> g_output : register(u0);
 RWByteAddressBuffer g_brdfBuff : register(u1);
-
-#ifndef PI
-#define PI 3.14159265359
-#endif
-
-#ifndef INV_PI
-#define INV_PI (1.0/PI)
-#endif
 
 #ifndef SAMPLE_LINES
 #define SAMPLE_LINES 64
 #endif
-
-float F_Schlick(float f0, float f90, float u)
-{
-    float x = 1.0 - u;
-    float x2 = x * x;
-    float x5 = x * x2 * x2;
-    return (f90 - f0) * x5 + f0;                // sub mul mul mul sub mad
-}
-
-float F_Schlick(float f0, float u)
-{
-    return F_Schlick(f0, 1.0, u);               // sub mul mul mul sub mad
-}
-
-float GetSmithJointGGXPartLambdaV(float NdotV, float roughness)
-{
-    float a2 = roughness * roughness;
-    return sqrt((-NdotV * a2 + NdotV) * NdotV + a2);
-}
-
-// Inline D_GGX() * V_SmithJointGGX() together for better code generation.
-float DV_SmithJointGGX(float NdotH, float NdotL, float NdotV, float roughness, float partLambdaV)
-{
-    float a2 = roughness*roughness;
-    float s = (NdotH * a2 - NdotH) * NdotH + 1.0;
-
-    float lambdaV = NdotL * partLambdaV;
-    float lambdaL = NdotV * sqrt((-NdotL * a2 + NdotL) * NdotL + a2);
-
-    float2 D = float2(a2, s * s);            // Fraction without the multiplier (1/Pi)
-    float2 G = float2(1, lambdaV + lambdaL); // Fraction without the multiplier (1/2)
-
-    // This function is only used for direct lighting.
-    // If roughness is 0, the probability of hitting a punctual or directional light is also 0.
-    // Therefore, we return 0. The most efficient way to do it is with a max().
-    return INV_PI * 0.5 * (D.x * G.x) / max(D.y * G.y, 0.00001);
-}
 
 cbuffer constants : register(b0)
 {
@@ -56,10 +13,15 @@ cbuffer constants : register(b0)
     float4 g_angles;
     float4 g_material;
     float4 g_coordTransform;
+    float4 g_eyeArgs0;
+    float4 g_eyeArgs1;
 }
 
 #define g_VdotN g_angles.x
 #define g_roughness g_material.x
+#define g_eyePos g_eyeArgs0.xyz
+#define g_eyeAzimuth g_eyeArgs0.w
+#define g_eyeAltitude g_eyeArgs1.x
 
 float3 drawLine(float2 p0, float2 p1, float thickness, float3 col, float2 coord)
 {
@@ -78,7 +40,7 @@ float3 drawLine2(float2 p0, float2 p1, float thickness, float3 col, float2 coord
     return bCol;
 }
 
-float2 hemisphereSample(uint i, uint count)
+float2 hemisphereSample2D(uint i, uint count)
 {
     float ang = ((float)i/(float)count) * PI;
     return float2(cos(ang), sin(ang));
@@ -94,7 +56,7 @@ float3 drawBrdf(float2 o, float lineThickness, float2 V, float2 N, float roughne
     float lambda = GetSmithJointGGXPartLambdaV(NdotV, roughness);
     for (i = 0; i <= SAMPLE_LINES; ++i)
     {
-        float2 L = hemisphereSample(i, SAMPLE_LINES);
+        float2 L = hemisphereSample2D(i, SAMPLE_LINES);
         float2 H = normalize(L + V);
         float NdotL = dot(N, L);
         float NdotH = dot(N, H);
@@ -129,7 +91,7 @@ float2 getCoord(uint2 pixelCoord)
 }
 
 [numthreads(8,8,1)]
-void csBrdfTestsMain(uint3 dispatchThreadID : SV_DispatchThreadID)
+void csBrdf2DPreview(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
     float2 coord = getCoord(dispatchThreadID.xy);
 
@@ -151,5 +113,12 @@ void csBrdfTestsMain(uint3 dispatchThreadID : SV_DispatchThreadID)
     if (dispatchThreadID.x == 0 && dispatchThreadID.y == 0)
         g_brdfBuff.Store(0, asuint(brdfV));
         
-    g_output[dispatchThreadID.xy] = float4(col,1);
+    g_output[dispatchThreadID.xy] = float4(col, 1);
 }
+
+
+[numthreads(8,8,1)]
+void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
+}
+
