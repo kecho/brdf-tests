@@ -22,6 +22,7 @@ class Params:
     
         # camera
         self.eye_pos = (0, 0, 3.0)
+        self.eye_fov_y = 0
         self.eye_azimuth = 0
         self.eye_altitude = 0
 
@@ -38,6 +39,7 @@ def build_ui(imgui):
         p.roughness = imgui.slider_float("roughness", v= p.roughness, v_min=0, v_max=1)
     if (imgui.collapsing_header("3d camera", g.ImGuiTreeNodeFlags.DefaultOpen)):
         p.eye_pos = imgui.input_float3("eye pos", v = p.eye_pos)
+        p.eye_fov_y = imgui.slider_float("eye fov y", v = p.eye_fov_y, v_min=0, v_max=0.5*math.pi)
         p.eye_azimuth = imgui.slider_float("eye azimuth", v = p.eye_azimuth, v_min=-math.pi, v_max=math.pi)
         p.eye_altitude = imgui.slider_float("eye altitude", v = p.eye_altitude, v_min=0, v_max=0.5 * math.pi)
     if (imgui.collapsing_header("Display", g.ImGuiTreeNodeFlags.DefaultOpen)):
@@ -66,7 +68,7 @@ def create_constants(p, args):
         float(p.roughness), 0.0, 0.0, 0.0,
         float(p.scroll[0]), float(p.scroll[1]), float(p.zoom), 0.0,
         float(p.eye_pos[0]), float(p.eye_pos[1]), float(p.eye_pos[2]), float(p.eye_azimuth),
-        float(p.eye_altitude), 0.0, 0.0, 0.0
+        float(p.eye_altitude), float(math.cos(p.eye_fov_y)), float(math.sin(p.eye_fov_y)), 0.0
     ]
 
 def on_render_brdf_2d_prev(args):
@@ -96,6 +98,16 @@ def on_render_brdf_2d_prev(args):
 def on_render_brdf_scene(args):
     global p
     build_ui(args.imgui)
+    cmd = g.CommandList()
+    cmd.dispatch(
+        shader = g_brdf_scene_shader,
+        constants = create_constants(p, args),
+        outputs = args.window.display_texture,
+        x = int((args.width+7)/8),
+        y = int((args.height+7)/8),
+        z = 1
+    )
+    g.schedule(cmd)
 
 w0 = g.Window(title="brdf-scene", width=960, height=540, on_render = on_render_brdf_scene)
 w1 = g.Window(title="brdf-2d-prev", width=400, height=400, on_render = on_render_brdf_2d_prev, use_imgui=False)

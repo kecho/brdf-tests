@@ -22,6 +22,8 @@ cbuffer constants : register(b0)
 #define g_eyePos g_eyeArgs0.xyz
 #define g_eyeAzimuth g_eyeArgs0.w
 #define g_eyeAltitude g_eyeArgs1.x
+#define g_eyeCosFovY g_eyeArgs1.y
+#define g_eyeSinFovY g_eyeArgs1.z
 
 float3 drawLine(float2 p0, float2 p1, float thickness, float3 col, float2 coord)
 {
@@ -77,13 +79,19 @@ float3 drawBrdf(float2 o, float lineThickness, float2 V, float2 N, float roughne
     return col;
 }
 
-float2 getCoord(uint2 pixelCoord)
+float2 getHCoords(uint2 pixelCoord)
 {
-    float aspect = g_sizes.x/g_sizes.y;
     float2 uv = (pixelCoord + 0.5) * g_sizes.zw;
     float2 coord = uv * 2.0 - 1.0;
     coord.y *= -1;
-    coord.x *= aspect;
+    return coord;
+}
+
+float2 getCanvasCoord(uint2 pixelCoord)
+{
+    float2 coord = getHCoords(pixelCoord);
+    float aspectInv = g_sizes.x/g_sizes.y;
+    coord.x *= aspectInv;
 
     coord.xy += g_coordTransform.xy;
     coord.xy /= g_coordTransform.z;
@@ -93,7 +101,7 @@ float2 getCoord(uint2 pixelCoord)
 [numthreads(8,8,1)]
 void csBrdf2DPreview(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
-    float2 coord = getCoord(dispatchThreadID.xy);
+    float2 coord = getCanvasCoord(dispatchThreadID.xy);
 
     float2 N = float2(0.0, 1.0);
     float2 o = float2(0, -0.3);
@@ -116,9 +124,59 @@ void csBrdf2DPreview(uint3 dispatchThreadID : SV_DispatchThreadID)
     g_output[dispatchThreadID.xy] = float4(col, 1);
 }
 
+float3 getCameraRay(float2 hCoords, float2 screenSize, float cosFovY, float sinFovY)
+{
+    float aspect = screenSize.y/screenSize.x;
+    float sinFovX = sinFovY * aspect;
+    return normalize(float3(hCoords * float2(sinFovY, sinFovX), -cosFovY));
+}
+
+struct Ray
+{
+    float3 o;
+    float3 d;
+};
+
+bool sphereIntersect(float4 sphere, Ray ray, out float t, out float3 n)
+{
+    //x2 + y2 + z2 = r2
+    //o + t*d = p
+    //
+    //(ox + t*dx)2 + (oy + t*dy)2 + (oz + t*dz)2 - r2 = 0
+    //ox2 + 2toxdx + t2dx2 + oy2 + 2toydy + t2dy2 + oz2 + 2tozdz + t2dz2 - r2 = 0
+    //t2*(dx2 + dy2 + dz2) + t*(2oxdx + 2oydy + 2ozdz) + ((ox2 + oy2 + oz2) - r2) = 0
+    float3 o = ray.o - sphere.xyz;
+    float a = dot(ray.d,ray.d);
+    float b = 2.0 * dot(ray.d, o);
+    float c = dot(o, o) - sphere.w*sphere.w;
+    float b24ac = b*b - 4.0*a*c;
+    if (b24ac < 0.0)
+    {
+        n = 0;
+        t = 0;
+        return false;
+    }
+
+    float inv2a = rcp(2.0*a);
+    t = (-b - sqrt(b24ac))*inv2a;
+    n = normalize((ray.o + ray.d * t) - sphere.xyz);
+    return t > 0.0;
+}
 
 [numthreads(8,8,1)]
 void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
+    float2 hCoords = getHCoords(dispatchThreadID.xy);
+    Ray ray;
+    ray.o = g_eyePos;
+    ray.d = getCameraRay(hCoords, g_sizes.xy, g_eyeCosFovY, g_eyeSinFovY);
+
+    float3 col = float3(0,0,0);
+    float t;
+    float3 n;
+    if (sphereIntersect(float4(0,0,-8,4), ray, t, n))
+        col = float3(1,1,1);
+
+    g_output[dispatchThreadID.xy] = float4(max(0, dot(-ray.d, n)).xxx, 1);
 }
 
