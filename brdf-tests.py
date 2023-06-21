@@ -28,7 +28,7 @@ class Params:
         self.brdf_integral = 0
 
     def reset_cam(self):
-        self.eye_pos = (0, 0, 3.0)
+        self.eye_pos = (0, 0, 8.0)
         self.eye_fov_y = math.pi * 0.5 * 0.6
         self.eye_azimuth = 0
         self.eye_altitude = 0
