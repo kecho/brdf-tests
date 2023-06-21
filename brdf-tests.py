@@ -21,13 +21,20 @@ class Params:
         self.mouse_pos = (0, 0)
     
         # camera
+        self.reset_cam()
+
+        # info
+        self.brdf_integral = 0
+
+    def reset_cam(self):
         self.eye_pos = (0, 0, 3.0)
         self.eye_fov_y = math.pi * 0.5 * 0.6
         self.eye_azimuth = 0
         self.eye_altitude = 0
-
-        # info
-        self.brdf_integral = 0
+        self.cam_speed = 0.7
+        self.cam_velocity_f = 0.0
+        self.cam_velocity_s = 0.0
+        
 
 p = Params()
 
@@ -41,7 +48,10 @@ def build_ui(imgui):
         p.eye_pos = imgui.input_float3("eye pos", v = p.eye_pos)
         p.eye_fov_y = imgui.slider_float("eye fov y", v = p.eye_fov_y, v_min=0, v_max=0.5*math.pi)
         p.eye_azimuth = imgui.slider_float("eye azimuth", v = p.eye_azimuth, v_min=-math.pi, v_max=math.pi)
-        p.eye_altitude = imgui.slider_float("eye altitude", v = p.eye_altitude, v_min=0, v_max=0.5 * math.pi)
+        p.eye_altitude = imgui.slider_float("eye altitude", v = p.eye_altitude, v_min=-0.5*math.pi, v_max=0.5 * math.pi)
+        p.cam_speed = imgui.slider_float("camera speed", v = p.cam_speed, v_min=0.1, v_max=100.0)
+        if (imgui.button("reset")):
+            p.reset_cam()
     if (imgui.collapsing_header("Display", g.ImGuiTreeNodeFlags.DefaultOpen)):
         p.scroll = imgui.input_float3("scroll", v = p.scroll)
         p.zoom = imgui.slider_float("zoom", v = p.zoom, v_min=g_min_zoom, v_max=g_max_zoom)
@@ -60,6 +70,35 @@ def parse_inputs_prev2d(p, args):
     elif (keys.get_key_state(g.Keys.MouseCenter)):
         p.scroll = (p.scroll[0] + t * (p.mouse_pos[0] - nX), p.scroll[1] - t * (p.mouse_pos[1] - nY), 0)
     p.mouse_pos = (nX, nY)
+
+def parse_inputs_scene3d(p, args):
+    keys = args.window
+    
+    if (keys.get_key_state(g.Keys.W)):
+        p.cam_velocity_f = p.cam_speed;
+    elif (keys.get_key_state(g.Keys.S)):
+        p.cam_velocity_f = -p.cam_speed;
+    if (keys.get_key_state(g.Keys.D)):
+        p.cam_velocity_s = p.cam_speed;
+    elif (keys.get_key_state(g.Keys.A)):
+        p.cam_velocity_s = -p.cam_speed;
+
+    if (math.fabs(p.cam_velocity_f) > 0.0 or math.fabs(p.cam_velocity_s) > 0.0):
+        sa = math.sin(p.eye_altitude)
+        ca = math.cos(p.eye_altitude)
+        sz = math.sin(p.eye_azimuth)
+        cz = math.cos(p.eye_azimuth)
+
+        eye_z = (ca * sz, sa, -ca * cz)
+        eye_x = (cz, 0, sz)
+
+        p.eye_pos = (
+            p.eye_pos[0] + eye_z[0] * p.cam_velocity_f + eye_x[0] * p.cam_velocity_s,
+            p.eye_pos[1] + eye_z[1] * p.cam_velocity_f + eye_x[1] * p.cam_velocity_s,
+            p.eye_pos[2] + eye_z[2] * p.cam_velocity_f + eye_x[2] * p.cam_velocity_s);
+
+    p.cam_velocity_f = 0.0 if p.cam_velocity_f < 0.001 else 0.3 * p.cam_velocity_f;
+    p.cam_velocity_s = 0.0 if p.cam_velocity_s < 0.001 else 0.3 * p.cam_velocity_s;
 
 def create_constants(p, args):
     return [
@@ -97,6 +136,7 @@ def on_render_brdf_2d_prev(args):
 
 def on_render_brdf_scene(args):
     global p
+    parse_inputs_scene3d(p, args)
     build_ui(args.imgui)
     cmd = g.CommandList()
     cmd.dispatch(

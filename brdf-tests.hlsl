@@ -124,7 +124,18 @@ float3 getCameraRay(float2 hCoords, float2 screenSize, float cosFovY, float sinF
 {
     float aspect = screenSize.y/screenSize.x;
     float sinFovX = sinFovY * aspect;
-    return normalize(float3(hCoords * float2(sinFovY, sinFovX), -cosFovY));
+
+    float sa = sin(g_eyeAltitude);
+    float ca = cos(g_eyeAltitude);
+    float sz = sin(g_eyeAzimuth);
+    float cz = cos(g_eyeAzimuth);
+
+    float3 eye_z = float3(ca * sz, sa, -ca * cz);
+    float3 eye_x = float3(cz, 0.0, sz);
+    float3 eye_y = cross(eye_x, eye_z);
+
+    return normalize(hCoords.x * sinFovY * eye_x + hCoords.y * sinFovX * eye_y + cosFovY * eye_z);
+    //return normalize(float3(, hCoords.y * sinFovX, -cosFovY));
 }
 
 RayHit traceScene(Ray ray)
@@ -138,7 +149,7 @@ RayHit traceScene(Ray ray)
     plane.d = 2.5;
 
     Quad quad;
-    quad.c = float3(5,0,-4.2);
+    quad.c = float3(0,0,-4.2);
     quad.r = float3(1,0,0);
     quad.u = float3(0,1,0);
     quad.e = float2(2,2);
