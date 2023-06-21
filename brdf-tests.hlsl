@@ -37,11 +37,6 @@ float3 drawLine(float2 p0, float2 p1, float thickness, float3 col, float2 coord)
     return saturate(col * t);
 }
 
-float3 drawLine2(float2 p0, float2 p1, float thickness, float3 col, float2 coord, float3 bCol)
-{
-    return bCol;
-}
-
 float2 hemisphereSample2D(uint i, uint count)
 {
     float ang = ((float)i/(float)count) * PI;
@@ -137,7 +132,33 @@ struct Ray
     float3 d;
 };
 
-bool sphereIntersect(float4 sphere, Ray ray, out float t, out float3 n)
+struct RayHit
+{
+    float t;
+    float3 n;
+};
+
+struct Sphere
+{
+    float3 o;
+    float r;
+};
+
+struct Plane
+{
+    float3 n;
+    float d;
+};
+
+struct Quad
+{
+    float3 c; //center
+    float3 r; //right vector (normalized)
+    float3 u; //up vector (normalized)
+    float2 e; //half extents (right & up)
+};
+
+RayHit sphereTrace(Sphere sphere, Ray ray)
 {
     //x2 + y2 + z2 = r2
     //o + t*d = p
@@ -145,22 +166,111 @@ bool sphereIntersect(float4 sphere, Ray ray, out float t, out float3 n)
     //(ox + t*dx)2 + (oy + t*dy)2 + (oz + t*dz)2 - r2 = 0
     //ox2 + 2toxdx + t2dx2 + oy2 + 2toydy + t2dy2 + oz2 + 2tozdz + t2dz2 - r2 = 0
     //t2*(dx2 + dy2 + dz2) + t*(2oxdx + 2oydy + 2ozdz) + ((ox2 + oy2 + oz2) - r2) = 0
-    float3 o = ray.o - sphere.xyz;
+
+    float3 o = ray.o - sphere.o;
     float a = dot(ray.d,ray.d);
     float b = 2.0 * dot(ray.d, o);
-    float c = dot(o, o) - sphere.w*sphere.w;
+    float c = dot(o, o) - sphere.r*sphere.r;
     float b24ac = b*b - 4.0*a*c;
+
+    RayHit rh;
     if (b24ac < 0.0)
     {
-        n = 0;
-        t = 0;
-        return false;
+        rh.t = -1;
+        rh.n = 0;
+    }
+    else
+    {
+        float inv2a = rcp(2.0*a);
+        rh.t = (-b - sqrt(b24ac))*inv2a;
+        rh.n = normalize((ray.o + ray.d * rh.t) - sphere.o);
     }
 
-    float inv2a = rcp(2.0*a);
-    t = (-b - sqrt(b24ac))*inv2a;
-    n = normalize((ray.o + ray.d * t) - sphere.xyz);
-    return t > 0.0;
+    return rh;
+}
+
+RayHit planeTrace(Plane p, Ray ray)
+{
+    // Plane trace line
+    // ax + bx + cx = d
+    // o + t*d = p
+    //
+    // (ox + t*dx)*a + (oy + t*dy)*b + (oz + t*dz)*c - d = 0
+    // (aox + boy + coz - d) + t * (a*dx + b*dy + c*dz) = 0
+    // t = (d - (aox + boy + coz)) / (adx + bdy + cdz) 
+
+    float NDotO = dot(-p.n, ray.o);
+    float NDotD = dot(-p.n, ray.d);
+
+    RayHit rh;
+    if (abs(NDotD) < 0.00001)
+    {
+        rh.t = -1;
+        rh.n = 0;
+    }
+    else
+    {
+        rh.t = (p.d - NDotO) / NDotD;
+        rh.n = p.n;
+    }
+
+    return rh;
+}
+
+RayHit quadTrace(Quad q, Ray ray)
+{
+    Plane p;
+    p.n = cross(q.r,q.u);
+    p.d = dot(-p.n, q.c);
+    RayHit ph = planeTrace(p, ray);
+    if (ph.t < 0.0)
+        return ph;
+
+    float3 hitPoint = (ph.t * ray.d + ray.o) - q.c;
+    if (abs(dot(hitPoint, q.r)) > q.e.x || abs(dot(hitPoint, q.u)) > q.e.y)
+    {
+        ph.t = -1;
+        return ph;
+    }
+
+    return ph;
+}
+
+RayHit traceScene(Ray ray)
+{
+    Sphere sphere;
+    sphere.o = float3(0,0,-8);
+    sphere.r = 4;
+
+    Plane plane;
+    plane.n = normalize(float3(0,1,0));
+    plane.d = 2.5;
+
+    Quad quad;
+    quad.c = float3(5,0,-4.2);
+    quad.r = float3(1,0,0);
+    quad.u = float3(0,1,0);
+    quad.e = float2(2,2);
+
+    RayHit rh;
+    rh.t = -1;
+    rh.n = 0;
+
+    RayHit th;
+
+    th = sphereTrace(sphere, ray);
+    if (rh.t < 0.0 || (th.t >= 0.0 && th.t < rh.t))
+        rh = th;
+
+    th = planeTrace(plane, ray);
+    if (rh.t < 0.0 || (th.t >= 0.0 && th.t < rh.t))
+        rh = th;
+
+    th = quadTrace(quad, ray);
+    if (rh.t < 0.0 || (th.t >= 0.0 && th.t < rh.t))
+        rh = th;
+
+    return rh;
 }
 
 [numthreads(8,8,1)]
@@ -172,11 +282,10 @@ void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
     ray.d = getCameraRay(hCoords, g_sizes.xy, g_eyeCosFovY, g_eyeSinFovY);
 
     float3 col = float3(0,0,0);
-    float t;
-    float3 n;
-    if (sphereIntersect(float4(0,0,-8,4), ray, t, n))
-        col = float3(1,1,1);
+    RayHit rh = traceScene(ray);
+    if (rh.t >= 0.0)
+        col = max(0, dot(-ray.d, rh.n));
 
-    g_output[dispatchThreadID.xy] = float4(max(0, dot(-ray.d, n)).xxx, 1);
+    g_output[dispatchThreadID.xy] = float4(col, 1);
 }
 
