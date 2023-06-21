@@ -135,24 +135,31 @@ float3 getCameraRay(float2 hCoords, float2 screenSize, float cosFovY, float sinF
     float3 eye_y = cross(eye_x, eye_z);
 
     return normalize(hCoords.x * sinFovY * eye_x + hCoords.y * sinFovX * eye_y + cosFovY * eye_z);
-    //return normalize(float3(, hCoords.y * sinFovX, -cosFovY));
 }
 
 RayHit traceScene(Ray ray)
 {
-    Sphere sphere;
-    sphere.o = float3(0,0,-8);
-    sphere.r = 4;
+    Sphere sphere0;
+    sphere0.o = float3(0,0,0);
+    sphere0.r = 3;
+
+    Sphere sphere1;
+    sphere1.o = float3(10,-1.6,0);
+    sphere1.r = 1;
+
+    Sphere sphere2;
+    sphere2.o = float3(6,-1.6,0);
+    sphere2.r = 2;
 
     Plane plane;
     plane.n = normalize(float3(0,1,0));
     plane.d = 2.5;
 
     Quad quad;
-    quad.c = float3(0,0,-4.2);
+    quad.c = float3(5,5,-15.2);
     quad.r = float3(1,0,0);
     quad.u = float3(0,1,0);
-    quad.e = float2(2,2);
+    quad.e = float2(8,8);
 
     RayHit rh;
     rh.t = -1;
@@ -160,18 +167,15 @@ RayHit traceScene(Ray ray)
 
     RayHit th;
 
-    th = sphereTrace(sphere, ray);
-    if (rh.t < 0.0 || (th.t >= 0.0 && th.t < rh.t))
-        rh = th;
+    #define Tr(x) { th = x; if (rh.t < 0.0 || (th.t >= 0.0 && th.t < rh.t)) rh = th; }
+    Tr(sphereTrace(sphere0, ray));
+    Tr(sphereTrace(sphere1, ray));
+    Tr(sphereTrace(sphere2, ray));
+    Tr(planeTrace(plane, ray));
+    Tr(quadTrace(quad, ray));
+    #undef Tr
 
-    th = planeTrace(plane, ray);
-    if (rh.t < 0.0 || (th.t >= 0.0 && th.t < rh.t))
-        rh = th;
-
-    th = quadTrace(quad, ray);
-    if (rh.t < 0.0 || (th.t >= 0.0 && th.t < rh.t))
-        rh = th;
-
+    rh.n = rh.t > 0.0 && dot(rh.n, ray.d) < 0.0 ? rh.n : -rh.n;
     return rh;
 }
 

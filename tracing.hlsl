@@ -42,6 +42,8 @@ RayHit sphereTrace(Sphere sphere, Ray ray)
     //ox2 + 2toxdx + t2dx2 + oy2 + 2toydy + t2dy2 + oz2 + 2tozdz + t2dz2 - r2 = 0
     //t2*(dx2 + dy2 + dz2) + t*(2oxdx + 2oydy + 2ozdz) + ((ox2 + oy2 + oz2) - r2) = 0
 
+    ray.d = normalize(ray.d);
+
     float3 o = ray.o - sphere.o;
     float a = dot(ray.d,ray.d);
     float b = 2.0 * dot(ray.d, o);

@@ -19,6 +19,7 @@ class Params:
         self.scroll = (0, 0, 0)
         self.zoom = 1.0
         self.mouse_pos = (0, 0)
+        self.mouse_pos_scene_view = (0, 0)
     
         # camera
         self.reset_cam()
@@ -73,15 +74,21 @@ def parse_inputs_prev2d(p, args):
 
 def parse_inputs_scene3d(p, args):
     keys = args.window
+    (pX, pY, nX, nY) = keys.get_mouse_position()
     
     if (keys.get_key_state(g.Keys.W)):
         p.cam_velocity_f = p.cam_speed;
     elif (keys.get_key_state(g.Keys.S)):
         p.cam_velocity_f = -p.cam_speed;
+
     if (keys.get_key_state(g.Keys.D)):
         p.cam_velocity_s = p.cam_speed;
     elif (keys.get_key_state(g.Keys.A)):
         p.cam_velocity_s = -p.cam_speed;
+
+    if (keys.get_key_state(g.Keys.MouseRight)):
+        p.eye_altitude += (p.mouse_pos_scene_view[1] - nY);
+        p.eye_azimuth += (nX - p.mouse_pos_scene_view[0]);
 
     if (math.fabs(p.cam_velocity_f) > 0.0 or math.fabs(p.cam_velocity_s) > 0.0):
         sa = math.sin(p.eye_altitude)
@@ -99,6 +106,7 @@ def parse_inputs_scene3d(p, args):
 
     p.cam_velocity_f = 0.0 if p.cam_velocity_f < 0.001 else 0.3 * p.cam_velocity_f;
     p.cam_velocity_s = 0.0 if p.cam_velocity_s < 0.001 else 0.3 * p.cam_velocity_s;
+    p.mouse_pos_scene_view = (nX, nY)
 
 def create_constants(p, args):
     return [
