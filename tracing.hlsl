@@ -11,6 +11,7 @@ struct RayHit
 {
     float t;
     float3 n;
+    uint materialID;
 };
 
 struct Sphere
@@ -33,7 +34,7 @@ struct Quad
     float2 e; //half extents (right & up)
 };
 
-RayHit sphereTrace(Sphere sphere, Ray ray)
+RayHit sphereTrace(Sphere sphere, Ray ray, uint materialID = -1)
 {
     //x2 + y2 + z2 = r2
     //o + t*d = p
@@ -55,18 +56,20 @@ RayHit sphereTrace(Sphere sphere, Ray ray)
     {
         rh.t = -1;
         rh.n = 0;
+        rh.materialID = -1;
     }
     else
     {
         float inv2a = rcp(2.0*a);
         rh.t = (-b - sqrt(b24ac))*inv2a;
         rh.n = normalize((ray.o + ray.d * rh.t) - sphere.o);
+        rh.materialID = materialID;
     }
 
     return rh;
 }
 
-RayHit planeTrace(Plane p, Ray ray)
+RayHit planeTrace(Plane p, Ray ray, uint materialID = -1)
 {
     // Plane trace line
     // ax + bx + cx = d
@@ -84,22 +87,25 @@ RayHit planeTrace(Plane p, Ray ray)
     {
         rh.t = -1;
         rh.n = 0;
+        rh.materialID = -1;
     }
     else
     {
         rh.t = (p.d - NDotO) / NDotD;
         rh.n = p.n;
+        rh.materialID = materialID;
     }
 
     return rh;
 }
 
-RayHit quadTrace(Quad q, Ray ray)
+RayHit quadTrace(Quad q, Ray ray, uint materialID = -1)
 {
     Plane p;
     p.n = cross(q.r,q.u);
     p.d = dot(-p.n, q.c);
     RayHit ph = planeTrace(p, ray);
+    ph.materialID = materialID;
     if (ph.t < 0.0)
         return ph;
 

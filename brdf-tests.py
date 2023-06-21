@@ -7,6 +7,7 @@ g_min_zoom = 0.05
 g_brdf_preview_shader = g.Shader(file="brdf-tests.hlsl", main_function="csBrdf2DPreview")
 g_brdf_scene_shader = g.Shader(file="brdf-tests.hlsl", main_function="csRtScene")
 g_brdf_integral_buff = g.Buffer(type=g.BufferType.Raw, element_count = 1)
+g_blue_noise_texture = g.Texture(file="BlueNoise_256x256.exr")
 g_request = None
 
 class Params:
@@ -21,6 +22,13 @@ class Params:
         self.mouse_pos = (0, 0)
         self.mouse_pos_scene_view = (0, 0)
     
+        #lighting
+        self.light_offset = (5.0, 5.0, -15.2)
+        self.light_rotation = (0, 0, 0)
+        self.light_size = (8, 8, 0)
+        self.light_intensity = 0.9
+        self.light_samples = 64
+
         # camera
         self.reset_cam()
 
@@ -36,8 +44,19 @@ class Params:
         self.cam_velocity_f = 0.0
         self.cam_velocity_s = 0.0
         
-
 p = Params()
+
+def build_transform(r, o):
+    cosA = math.cos(r[0])
+    sinA = math.sin(r[0])
+    cosB = math.cos(r[1])
+    sinB = math.sin(r[1])
+    cosC = math.cos(r[2])
+    sinC = math.sin(r[2])
+    return   [cosB*cosC, sinA*sinB*cosC - cosA*sinC, cosA*sinB*cosC + sinA*sinC, o[0],
+              cosB*sinC, sinA*sinB*sinC + cosA*cosC, cosA*sinB*sinC - sinA*cosC, o[1],
+              -sinB    , sinA*cosB                 , cosA*cosB                 , o[2],
+               0       , 0                         , 0                         , 1]
 
 def build_ui(imgui):
     global p
@@ -53,6 +72,12 @@ def build_ui(imgui):
         p.cam_speed = imgui.slider_float("camera speed", v = p.cam_speed, v_min=0.1, v_max=100.0)
         if (imgui.button("reset")):
             p.reset_cam()
+    if (imgui.collapsing_header("Lighting", g.ImGuiTreeNodeFlags.DefaultOpen)):
+        p.light_offset = imgui.input_float3("light offset", v=p.light_offset)
+        p.light_rotation = imgui.input_float3("light rotation", v=p.light_rotation)
+        p.light_size = imgui.input_float3("light size", v=p.light_size)
+        p.light_intensity = imgui.slider_float("light intensity", v=p.light_intensity, v_min=0, v_max=1.0)
+        p.light_samples = imgui.input_float("light samples", v=p.light_samples, step=1.0, step_fast=1.0)
     if (imgui.collapsing_header("Display", g.ImGuiTreeNodeFlags.DefaultOpen)):
         p.scroll = imgui.input_float3("scroll", v = p.scroll)
         p.zoom = imgui.slider_float("zoom", v = p.zoom, v_min=g_min_zoom, v_max=g_max_zoom)
@@ -109,14 +134,15 @@ def parse_inputs_scene3d(p, args):
     p.mouse_pos_scene_view = (nX, nY)
 
 def create_constants(p, args):
-    return [
+    c = [
         float(args.width), float(args.height), float(1.0/args.width), float(1.0/args.height),
         float(p.VdotN), 0.0, 0.0, 0.0,
         float(p.roughness), 0.0, 0.0, 0.0,
         float(p.scroll[0]), float(p.scroll[1]), float(p.zoom), 0.0,
         float(p.eye_pos[0]), float(p.eye_pos[1]), float(p.eye_pos[2]), float(p.eye_azimuth),
-        float(p.eye_altitude), float(math.cos(p.eye_fov_y)), float(math.sin(p.eye_fov_y)), 0.0
-    ]
+        float(p.eye_altitude), float(math.cos(p.eye_fov_y)), float(math.sin(p.eye_fov_y)), 0.0,
+        float(p.light_intensity), float(p.light_size[0]), float(p.light_size[1]), int(p.light_samples)]
+    return c + build_transform(p.light_rotation, p.light_offset)
 
 def on_render_brdf_2d_prev(args):
     global g_request
@@ -150,6 +176,7 @@ def on_render_brdf_scene(args):
     cmd.dispatch(
         shader = g_brdf_scene_shader,
         constants = create_constants(p, args),
+        inputs = g_blue_noise_texture,
         outputs = args.window.display_texture,
         x = int((args.width+7)/8),
         y = int((args.height+7)/8),
