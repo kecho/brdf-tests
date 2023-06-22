@@ -45,18 +45,17 @@ float3 drawLine(float2 p0, float2 p1, float thickness, float3 col, float2 coord)
     t = (proj < 0.0 || proj > dist) ? 0.0 : t;
     return saturate(col * t);
 }
-
+ 
 float2 hemisphereSample2D(uint i, uint count)
 {
     float ang = ((float)i/(float)count) * PI;
     return float2(cos(ang), sin(ang));
 } 
 
-float3 drawBrdf(float2 o, float lineThickness, float2 V, float2 N, float roughness, float2 coord, out float intValue)
+float3 drawBrdf(float2 o, float lineThickness, float2 V, float2 N, float roughness, float2 coord)
 {
     uint i = 0;
     float3 col = float3(0,0,0);
-    intValue = 0.0;
 
     float NdotV = dot(N, V);
     float lambda = GetSmithJointGGXPartLambdaV(NdotV, roughness);
@@ -73,14 +72,38 @@ float3 drawBrdf(float2 o, float lineThickness, float2 V, float2 N, float roughne
         float FweightOverPdf = weightOverPdf;
 
         float ww = weightOverPdf * NdotL;
-        intValue += ww;
 
         col += drawLine(o, o + ww * L, lineThickness, float3(0.0, 0.0, 0.4), coord);
     }
-
-    intValue /= SAMPLE_LINES;
-
     return col;
+}
+
+float integrateBrdf(float3 V, float roughness)
+{
+    float3 N = float3(0,1,0);
+    float intValue = 0.0;
+    float NdotV = dot(N, V);
+    float lambda = GetSmithJointGGXPartLambdaV(NdotV, roughness);
+    uint i;
+    for (i = 0; i < g_lightSamples; ++i)
+    {
+        float2 uv = sampleHammersley(i, g_lightSamples);
+        float3 L = sampleCosineHemisphere(uv.x, uv.y).xzy;
+        float3 H = normalize(L + V);
+        float NdotL = dot(N, L);
+        float NdotH = dot(N, H);
+        float VdotH = dot(N, H);
+
+        float vis = DV_SmithJointGGX(NdotH, NdotL, max(NdotV,0), roughness, lambda);
+        float weightOverPdf = 4.0 * vis * NdotL * VdotH / NdotH;
+        float FweightOverPdf = weightOverPdf * F_Schlick(0.5, NdotV);
+
+        float ww = FweightOverPdf;
+        intValue += ww;
+    }
+
+    intValue *= 1.0 / (float)g_lightSamples;
+    return intValue;
 }
 
 float2 getHCoords(uint2 pixelCoord)
@@ -120,10 +143,10 @@ void csBrdf2DPreview(uint3 dispatchThreadID : SV_DispatchThreadID)
     col += drawLine(o, o + Vo, lineThickness, float3(0.2,0.2,0.2), coord);
 
     float brdfV;
-    col += drawBrdf(o, lineThickness, float2(V.x, V.y), N, g_roughness, coord, brdfV);
+    col += drawBrdf(o, lineThickness, float2(V.x, V.y), N, g_roughness, coord);
 
     if (dispatchThreadID.x == 0 && dispatchThreadID.y == 0)
-        g_brdfBuff.Store(0, asuint(brdfV));
+        g_brdfBuff.Store(0, asuint(integrateBrdf(float3(0.0, V.y, V.x), g_roughness)));
         
     g_output[dispatchThreadID.xy] = float4(col, 1);
 }
@@ -200,8 +223,9 @@ RayHit traceScene(Ray ray)
 
 float matTiles(float3 worldPos, float3 n)
 {
-    float r = lerp(0.05, 0.7, (0.5 + 0.5 *sin(worldPos.x)) * (0.5 + 0.5 * sin(worldPos.z)));
-    return sqrt(r);
+    float2 r = (worldPos.xz + 100.0) * 0.2;
+    int2 tileIds = (int2)r;
+    return lerp(g_roughness, 0.7, (float)((tileIds.x ^ tileIds.y) & 0x1));
 }
 
 uint sampleRandomSeed(uint2 pixelCoord)
@@ -223,21 +247,53 @@ void lighting(uint seed, float3 worldPos, float roughness, float3 n, float3 v, o
     diff = 0;
     spec = 0;
 
+    uint rng = seed;
+
+    uint specSamples = 0;
+    uint diffSamples = 0;
+
     for (uint i = 0; i < g_lightSamples; ++i)
     {
         float2 uv = fmod(sampleHammersley(i, g_lightSamples) + sampleOffset, float2(1.0,1.0));
-        float3 v = sampleCosineHemisphere(uv.x, uv.y);
+        float3 s = sampleCosineHemisphere(uv.x, uv.y);
         Ray r;
-        r.d = mul(basis,v);
+        r.d = mul(basis,s);
         r.o = worldPos + 0.0001 * r.d;
 
+        float3 V = -v;
+        float3 L = r.d;
+        float3 H = normalize(L + V);
+        float NdotV = max(dot(V, n), 0);
+        float NdotH = max(dot(n, H), 0);
+        float NdotL = max(dot(n, L), 0);
+        float VdotH = max(dot(V, H), 0);
+        float lambda = GetSmithJointGGXPartLambdaV(NdotV, roughness);
+        float vis = DV_SmithJointGGX(NdotH, NdotL, max(NdotV,0), roughness, lambda);
+        float weightOverPdf = 4.0 * vis * NdotL * VdotH / NdotH;
+        float FweightOverPdf = weightOverPdf * F_Schlick(1.0, NdotV);
+        bool isSpec = randomFloat(rng) < FweightOverPdf;
         RayHit rh = traceScene(r);
+        if (isSpec)
+            specSamples += 1;
+        else
+            diffSamples += 1;
         if (rh.t >= 0.0 && rh.materialID == MATERIAL_EMISSIVE)
-            diff += g_lightIntensity;
+        {
+            if (isSpec)
+                spec += g_lightIntensity * FweightOverPdf;
+            else
+                diff += g_lightIntensity;
+        }
+    
     }
 
+    #if 1
+    spec *= specSamples ? 1.0/(float)specSamples : 0;
+    diff *= diffSamples ? 1.0/(float)diffSamples : 0;
+    #else
     spec *= 1.0/g_lightSamples;
     diff *= 1.0/g_lightSamples;
+    #endif
 }
 
 [numthreads(8,8,1)]
