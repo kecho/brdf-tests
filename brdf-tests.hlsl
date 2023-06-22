@@ -215,11 +215,13 @@ float2 offsetFromSeed(uint seed)
     return float2((float)(seed % 256)/256.0, ((float)seed/256)/256.0);
 }
 
-float3 lighting(uint seed, float3 worldPos, float roughness, float3 n, float3 v)
+void lighting(uint seed, float3 worldPos, float roughness, float3 n, float3 v, out float3 diff, out float3 spec)
 {
     float2 sampleOffset = offsetFromSeed(seed);
     float3 radCol = 0.0;
     float3x3 basis = transpose(inventBasisFromNormal(n));
+    diff = 0;
+    spec = 0;
 
     for (uint i = 0; i < g_lightSamples; ++i)
     {
@@ -231,19 +233,11 @@ float3 lighting(uint seed, float3 worldPos, float roughness, float3 n, float3 v)
 
         RayHit rh = traceScene(r);
         if (rh.t >= 0.0 && rh.materialID == MATERIAL_EMISSIVE)
-            radCol += g_lightIntensity;
+            diff += g_lightIntensity;
     }
 
-    radCol *= (4.0 * PI)/g_lightSamples;
-
-    //specular
-    //Ray ref;
-    //ref.d = reflect(v, n);
-    //ref.o = worldPos + 0.0001 * ref.d;
-    //RayHit refRes = traceScene(ref);
-    //radCol += refRes.t >= 0.0 && refRes.materialID == MATERIAL_EMISSIVE ? g_lightSamples : 0.0;
-
-    return radCol;
+    spec *= 1.0/g_lightSamples;
+    diff *= 1.0/g_lightSamples;
 }
 
 [numthreads(8,8,1)]
@@ -260,6 +254,7 @@ void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
 
     float roughness = 0.0;
     float3 col = 0;
+    float3 alb = float3(0,0,0);
     RayHit rh = traceScene(ray);
     if (rh.t >= 0.0)
     {
@@ -269,20 +264,25 @@ void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
         {
         case MATERIAL_TILES:
             roughness = matTiles(worldPos, rh.n);
+            alb = float3(0.8, 0.2, 0.1);
             break;
         case MATERIAL_SHINY:
             roughness = 0.9;
+            alb = float3(0.1, 0.1, 0.6);
             break;
         case MATERIAL_DIFFUSIVE:
             roughness = 0.1;
+            alb = float3(0.1, 0.3, 0.61);
             break;
         case MATERIAL_EMISSIVE:
             roughness = 0.0;
-            e = g_lightIntensity * g_lightWidth * g_lightHeight;
+            e = g_lightIntensity;
             break;
         }
 
-        col = lighting(seed, worldPos, roughness, rh.n, ray.d) + e;
+        float3 diff, spec;
+        lighting(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
+        col = diff*alb + spec + e;
     }
 
     g_output[dispatchThreadID.xy] = float4(col, 1);

@@ -26,7 +26,7 @@ class Params:
         self.light_offset = (5.0, 5.0, -15.2)
         self.light_rotation = (0, 0, 0)
         self.light_size = (8, 8, 0)
-        self.light_intensity = 0.9
+        self.light_intensity = 0.117
         self.light_samples = 64
 
         # camera
@@ -141,7 +141,7 @@ def create_constants(p, args):
         float(p.scroll[0]), float(p.scroll[1]), float(p.zoom), 0.0,
         float(p.eye_pos[0]), float(p.eye_pos[1]), float(p.eye_pos[2]), float(p.eye_azimuth),
         float(p.eye_altitude), float(math.cos(p.eye_fov_y)), float(math.sin(p.eye_fov_y)), 0.0,
-        float(p.light_intensity), float(p.light_size[0]), float(p.light_size[1]), int(p.light_samples)]
+        float(p.light_intensity * p.light_size[0] * p.light_size[1]), float(p.light_size[0]), float(p.light_size[1]), int(p.light_samples)]
     return c + build_transform(p.light_rotation, p.light_offset)
 
 def on_render_brdf_2d_prev(args):
