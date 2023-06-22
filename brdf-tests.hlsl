@@ -270,7 +270,7 @@ void lighting(uint seed, float3 worldPos, float roughness, float3 n, float3 v, o
         float lambda = GetSmithJointGGXPartLambdaV(NdotV, roughness);
         float vis = DV_SmithJointGGX(NdotH, NdotL, max(NdotV,0), roughness, lambda);
         float weightOverPdf = 4.0 * vis * NdotL * VdotH / NdotH;
-        float FweightOverPdf = weightOverPdf * F_Schlick(1.0, NdotV);
+        float FweightOverPdf = weightOverPdf * F_Schlick(0.2, NdotV);
         bool isSpec = randomFloat(rng) < FweightOverPdf;
         RayHit rh = traceScene(r);
         if (isSpec)
@@ -280,7 +280,7 @@ void lighting(uint seed, float3 worldPos, float roughness, float3 n, float3 v, o
         if (rh.t >= 0.0 && rh.materialID == MATERIAL_EMISSIVE)
         {
             if (isSpec)
-                spec += g_lightIntensity * FweightOverPdf;
+                spec += g_lightIntensity * saturate(FweightOverPdf);
             else
                 diff += g_lightIntensity;
         }
@@ -323,11 +323,11 @@ void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
             alb = float3(0.8, 0.2, 0.1);
             break;
         case MATERIAL_SHINY:
-            roughness = 0.9;
+            roughness = 0.7;
             alb = float3(0.1, 0.1, 0.6);
             break;
         case MATERIAL_DIFFUSIVE:
-            roughness = 0.1;
+            roughness = 0.3;
             alb = float3(0.1, 0.3, 0.61);
             break;
         case MATERIAL_EMISSIVE:
