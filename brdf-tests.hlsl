@@ -230,7 +230,7 @@ float matTiles(float3 worldPos, float3 n)
 
 uint sampleRandomSeed(uint2 pixelCoord)
 {
-    float bn = g_blueNoise.Load(uint3(pixelCoord.xy % 256, 0));
+    float bn = g_blueNoise.Load(uint3((pixelCoord.xy) % 256, 0));
     return (uint)round(bn * 256.0 * 256.0);
 }
 
@@ -254,7 +254,7 @@ void lighting(uint seed, float3 worldPos, float roughness, float3 n, float3 v, o
 
     for (uint i = 0; i < g_lightSamples; ++i)
     {
-        float2 uv = fmod(sampleHammersley(i, g_lightSamples) + sampleOffset, float2(1.0,1.0));
+        float2 uv = fmod(sampleHammersley(i , g_lightSamples) + sampleOffset, float2(1.0,1.0));
         float3 s = sampleCosineHemisphere(uv.x, uv.y);
         Ray r;
         r.d = mul(basis,s);
@@ -294,6 +294,14 @@ void lighting(uint seed, float3 worldPos, float roughness, float3 n, float3 v, o
     spec *= 1.0/g_lightSamples;
     diff *= 1.0/g_lightSamples;
     #endif
+}
+
+float3 linearToSRGB(float3 col)
+{
+    bool3 cutoff = col < 0.0031308.xxx;
+    float3 higher = 1.055.xxx*pow(col, (1.0/2.4).xxx) - 0.055.xxx;
+    float3 lower = col * 12.92.xxx;
+    return lerp(higher, lower, cutoff);
 }
 
 [numthreads(8,8,1)]
@@ -341,6 +349,6 @@ void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
         col = diff*alb + spec + e;
     }
 
-    g_output[dispatchThreadID.xy] = float4(col, 1);
+    g_output[dispatchThreadID.xy] = lerp(g_output[dispatchThreadID.xy], float4(linearToSRGB(col), 1), 0.04);
 }
 
