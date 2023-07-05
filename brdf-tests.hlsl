@@ -349,6 +349,7 @@ void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
         col = diff*alb + spec + e;
     }
 
-    g_output[dispatchThreadID.xy] = lerp(g_output[dispatchThreadID.xy], float4(linearToSRGB(col), 1), 0.04);
+    //g_output[dispatchThreadID.xy] = lerp(g_output[dispatchThreadID.xy], float4(linearToSRGB(col), 1), 0.04);
+    g_output[dispatchThreadID.xy] = float4(linearToSRGB(col), 1.0);
 }
 
