@@ -62,7 +62,6 @@ def hemisphere_cos_quad_analytical_integral(q_theta, q_phi, q_halfwidth, q_halfh
         v0 = [q_nx[i], q_ny[i], q_nz[i]]
         v1 = [q_nx[n_i], q_ny[n_i], q_nz[n_i]]
         ang = np.arccos(np.dot(v0, v1))
-        print(ang)
         sum += ang*np.cross(v0, v1)[2]
 
     return sum  / (2.0 * math.pi)
