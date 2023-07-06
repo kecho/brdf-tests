@@ -106,6 +106,23 @@ float integrateBrdf(float3 V, float roughness)
     return intValue;
 }
 
+float3 drawSG(float2 o, float lineThickness, float2 V, float2 N, float lambda, float2 coord)
+{
+    uint i = 0;
+    float3 col = float3(0,0,0);
+
+    float NdotV = dot(N, V);
+    for (i = 0; i <= SAMPLE_LINES; ++i)
+    {
+        float2 L = hemisphereSample2D(i, SAMPLE_LINES);
+        float2 R = reflect(-V, N);
+
+        float ww = exp(lambda*(dot(R,L) - 1.0));
+        col += drawLine(o, o + ww * L, lineThickness, float3(0.0, 0.0, 0.4), coord);
+    }
+    return col;
+}
+
 float2 getHCoords(uint2 pixelCoord)
 {
     float2 uv = (pixelCoord + 0.5) * g_sizes.zw;
@@ -143,7 +160,8 @@ void csBrdf2DPreview(uint3 dispatchThreadID : SV_DispatchThreadID)
     col += drawLine(o, o + Vo, lineThickness, float3(0.2,0.2,0.2), coord);
 
     float brdfV;
-    col += drawBrdf(o, lineThickness, float2(V.x, V.y), N, g_roughness, coord);
+    //col += drawBrdf(o, lineThickness, float2(V.x, V.y), N, g_roughness, coord);
+    col += drawSG(o, lineThickness, float2(V.x, V.y), N, 13.0, coord);
 
     if (dispatchThreadID.x == 0 && dispatchThreadID.y == 0)
         g_brdfBuff.Store(0, asuint(integrateBrdf(float3(0.0, V.y, V.x), g_roughness)));
@@ -296,6 +314,137 @@ void lighting(uint seed, float3 worldPos, float roughness, float3 n, float3 v, o
     #endif
 }
 
+void lightingSG(uint seed, float3 worldPos, float roughness, float3 n, float3 v, out float3 diff, out float3 spec)
+{
+    float2 sampleOffset = offsetFromSeed(seed);
+    float3 radCol = 0.0;
+    
+    float3 R = reflect(v, n);
+    float3x3 basis = transpose(inventBasisFromNormal(R));
+    diff = 0;
+    spec = 0;
+
+    uint rng = seed;
+
+    uint specSamples = 0;
+    uint diffSamples = 0;
+
+
+    for (uint i = 0; i < g_lightSamples; ++i)
+    {
+        float2 uv = fmod(sampleHammersley(i , g_lightSamples) + sampleOffset, float2(1.0,1.0));
+        float3 s = sampleCosineHemisphere(uv.x, uv.y);
+        Ray r;
+        r.d = mul(basis,s);
+        r.o = worldPos + 0.0001 * r.d;
+
+        float3 V = -v;
+        float3 L = r.d;
+        float3 H = normalize(L + V);
+
+        float lambd = 13.0 * g_roughness;
+        float FweightOverPdf = exp(lambd * (dot(R, L) - 1.0));
+        bool isSpec = randomFloat(rng) < FweightOverPdf;
+        RayHit rh = traceScene(r);
+        specSamples += 1;
+        spec += g_lightIntensity * (rh.t >= 0 && rh.materialID == MATERIAL_EMISSIVE ? 1.0 : 0.0) * saturate(FweightOverPdf);
+    
+    }
+
+    #if 1
+    spec *= specSamples ? 1.0/(float)specSamples : 0;
+    diff *= diffSamples ? 1.0/(float)diffSamples : 0;
+    #else
+    spec *= 1.0/g_lightSamples;
+    diff *= 1.0/g_lightSamples;
+    #endif
+}
+
+void lightingSGAnalytic2(uint seed, float3 worldPos, float roughness, float3 n, float3 v, out float3 diff, out float3 spec)
+{
+    Quad quad = getLightSource();
+
+    float3 R = reflect(v, n);
+    float3x3 basis = transpose(inventBasisFromNormal(-R));
+    float lamb = 13 * g_roughness;
+
+    float3 v0 = mul(quad.c + quad.r * quad.e.x + quad.u * quad.e.y - worldPos, basis);
+    float3 v1 = mul(quad.c - quad.r * quad.e.x + quad.u * quad.e.y - worldPos, basis);
+    float3 v2 = mul(quad.c - quad.r * quad.e.x - quad.u * quad.e.y - worldPos, basis);
+    float3 v3 = mul(quad.c + quad.r * quad.e.x - quad.u * quad.e.y - worldPos, basis);
+
+    float3 v0n = normalize(v0);
+    float3 v1n = normalize(v1);
+    float3 v2n = normalize(v2);
+    float3 v3n = normalize(v3);
+
+    float4 dots = -float4(v0n.z, v1n.z, v2n.z, v3n.z); 
+
+    float max_z = max(dots.x,max(dots.y, max(dots.z, dots.w)));
+    float min_z = min(dots.x,min(dots.y, min(dots.z, dots.w)));
+
+    float sg_int_hem = (2.0 * PI / (1.0/lamb)) * (exp(lamb*(max_z - 1)) - exp(lamb*(min_z - 1)));
+
+    float bx0 = acos(normalize(v0n.xy).x); 
+    float bx1 = acos(normalize(v1n.xy).x); 
+    float bx2 = acos(normalize(v2n.xy).x); 
+    float bx3 = acos(normalize(v3n.xy).x); 
+
+    float max_phi = max(bx0, max(bx1, max(bx2, bx3)));
+    float min_phi = min(bx0, min(bx1, min(bx2, bx3)));
+
+    spec = sg_int_hem * ((max_phi - min_phi)/(2.0*PI)) / PI;
+    diff = 0;
+}
+
+void lightingSGAnalytic(uint seed, float3 worldPos, float roughness, float3 n, float3 v, out float3 diff, out float3 spec)
+{
+    Quad quad = getLightSource();
+
+    float3 R = reflect(v, n);
+    float3x3 basis = transpose(inventBasisFromNormal(-n));
+    float lamb = 13 * g_roughness;
+
+    float3 v0 = mul(quad.c + quad.r * quad.e.x + quad.u * quad.e.y - worldPos, basis);
+    float3 v1 = mul(quad.c - quad.r * quad.e.x + quad.u * quad.e.y - worldPos, basis);
+    float3 v2 = mul(quad.c - quad.r * quad.e.x - quad.u * quad.e.y - worldPos, basis);
+    float3 v3 = mul(quad.c + quad.r * quad.e.x - quad.u * quad.e.y - worldPos, basis);
+
+    float3 v0n = normalize(v0);
+    float3 v1n = normalize(v1);
+    float3 v2n = normalize(v2);
+    float3 v3n = normalize(v3);
+
+    float2 bx0 = normalize(v0n.xy); 
+    float2 bx1 = normalize(v1n.xy); 
+    float2 bx2 = normalize(v2n.xy); 
+    float2 bx3 = normalize(v3n.xy); 
+
+    float new0_z = exp(lamb * (v0n.z - 1.0));
+    float new1_z = exp(lamb * (v1n.z - 1.0));
+    float new2_z = exp(lamb * (v2n.z - 1.0));
+    float new3_z = exp(lamb * (v3n.z - 1.0));
+
+    float new_z0_inv = sqrt(abs(1.0 - new0_z*new0_z));
+    float new_z1_inv = sqrt(abs(1.0 - new1_z*new1_z));
+    float new_z2_inv = sqrt(abs(1.0 - new2_z*new2_z));
+    float new_z3_inv = sqrt(abs(1.0 - new3_z*new3_z));
+
+    //v0n = float3(bx0 * new_z0_inv, new0_z);
+    //v1n = float3(bx1 * new_z1_inv, new1_z);
+    //v2n = float3(bx2 * new_z2_inv, new2_z);
+    //v3n = float3(bx3 * new_z3_inv, new3_z);
+
+    spec = 0;
+    spec += cross(v0n,v1n).z * acos(dot(v0n,v1n));
+    spec += cross(v1n,v2n).z * acos(dot(v1n,v2n));
+    spec += cross(v2n,v3n).z * acos(dot(v2n,v3n));
+    spec += cross(v2n,v0n).z * acos(dot(v3n,v0n));
+
+    spec = spec / (2.0 * PI);
+    diff = 0;
+}
+
 float3 linearToSRGB(float3 col)
 {
     bool3 cutoff = col < 0.0031308.xxx;
@@ -345,7 +494,8 @@ void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
         }
 
         float3 diff, spec;
-        lighting(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
+        lightingSGAnalytic(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
+        //lightingSG(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
         col = diff*alb + spec + e;
     }
 
