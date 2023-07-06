@@ -56,7 +56,6 @@ def hits_plane(plane_n, plane_u, plane_v, plane_c, plane_halfwidth, plane_halfhe
     ii = p_x*plane_v[0] + p_y*plane_v[1] + p_z*plane_v[2]
     jj = p_x*plane_u[0] + p_y*plane_u[1] + p_z*plane_u[2]
     return (nDotD>=0.000) * (np.abs(jj) <= plane_halfwidth) * (np.abs(ii) <= plane_halfheight)
-    #return (nDotD>=0.000) * dp# * (np.abs(ii) <= plane_halfwidth) * (np.abs(jj) <= plane_halfheight)
 
 def hemisphere_plane_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, x, y, z):
     q_n = create_normal(q_theta, q_phi)
@@ -65,7 +64,7 @@ def hemisphere_plane_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, x, y
     it_hits = hits_plane(q_n, q_b[0], q_b[1], q_c, q_halfwidth, q_halfheight, x, y, z)
     return it_hits*(x, y, z)
 
-samples = 20
+samples = 64
 idxX, idxY = np.indices((samples,samples))
 thetaVals, phiVals = np.linspace(0,math.pi/2,samples), np.linspace(0,2.0*math.pi,samples)
 thetas, phis = np.meshgrid(thetaVals, phiVals)
@@ -86,22 +85,25 @@ sg_v = sg(z, lamb)# - sg(-1,lamb)
 #ax.plot_trisurf(np.ravel(x), np.ravel(y), np.ravel(z), cmap='viridis')
 
 q_samples = 9
-q_theta = math.pi*0.5*0.3#0.3 * math.pi * 0.5
-q_phi = 2.0 * math.pi
-q_c = (1, 1, 3)
+q_theta = math.pi*0.5*0.8#0.3 * math.pi * 0.5
+q_phi = 0.1*2.0 * math.pi
+q_c = (4, 0, 4)
 q_halfwidth = 4 
 q_halfheight = 3 
 q_x, q_y, q_z = quad_sample_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, q_samples)
-#q_leninv = (1.0/(np.sqrt(q_x * q_x + q_y*q_y + q_z*q_z)))
-#q_cx, q_cy, q_cz = ((q_x, q_y, q_z)*q_leninv)
-#q_px, q_py, q_pz = sg(q_cz, lamb) * (q_cx, q_cy, q_cz)
+q_leninv = (1.0/(np.sqrt(q_x * q_x + q_y*q_y + q_z*q_z)))
+q_cx, q_cy, q_cz = ((q_x, q_y, q_z)*q_leninv)
+q_px, q_py, q_pz = sg(q_cz, lamb) * (q_cx, q_cy, q_cz)
 
 sp_x, sp_y, sp_z = hemisphere_plane_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, x, y, z)
 
-ax.scatter(q_x, q_y, q_z, marker='^', color='red')
-ax.scatter(sp_x, sp_y, sp_z, marker='^')
+#ax.scatter(q_x, q_y, q_z, marker='^', color='red')
+ax.plot_trisurf(np.ravel(q_x), np.ravel(q_y), np.ravel(q_z), color='red')
+#ax.scatter(sp_x, sp_y, sp_z, marker='^')
+ax.plot_trisurf(np.ravel(sp_x), np.ravel(sp_y), np.ravel(sp_z), color='green')
 #ax.scatter(q_cx, q_cy, q_cz, marker='^', color='blue')
 #ax.scatter(q_px, q_py, q_pz, marker='^')
+ax.plot_trisurf(np.ravel(q_px), np.ravel(q_py), np.ravel(q_pz), color='blue')
 #ax.plot_trisurf(np.ravel(q_cx), np.ravel(q_cy), np.ravel(q_cz))
 numerically_verify_int(samples, thetaVals)
 plt.show()
