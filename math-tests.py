@@ -12,6 +12,9 @@ def sg_int(lamb):
 def sg_int_omega(lamb):
     return 2.0 * math.pi * (1.0/lamb) * (1.0 - np.exp(-lamb))
 
+def sg_hem(lamb, costheta0, costheta1):
+    return 2.0 * math.pi * (1.0/lamb) * (np.exp(lamb*(costheta0 - 1)) - np.exp(lamb*(costheta1 - 1)))
+
 def create_normal(theta, phi):
     return np.array([np.sin(phi)*np.sin(theta), np.cos(phi)*np.sin(theta), np.cos(theta)])
 
@@ -82,6 +85,60 @@ def numerically_verify_quad_cos_int(samples, thetaVals, phiVals, q_theta, q_phi,
     print("monte carlo integral: " + str(int_val/math.pi))
     print("analytical integral: " + str(hemisphere_cos_quad_analytical_integral(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)))
 
+def transform_sg_to_cos(dir_x, dir_y, dir_z, lamb):
+    norms = np.sqrt(dir_x*dir_x + dir_y*dir_y + dir_z*dir_z)
+    q_nx, q_ny, q_nz = (dir_x, dir_y, dir_z)/norms
+
+    norm_base = np.sqrt(dir_x*dir_x + dir_y*dir_y)
+    b_x, b_y = (dir_x, dir_y)/norm_base
+
+    sg_val = sg(q_nz, lamb)
+    new_z = sg_val
+    new_z_inv = np.sqrt(1.0 - new_z*new_z)
+    b_x, b_y = new_z_inv * (b_x, b_y)
+    return (b_x, b_y, new_z)
+    
+
+def hemisphere_sg_quad_analytical_integral(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb):
+    q_x, q_y, q_z = quad_edge_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
+    t = (q_x[2], q_y[2], q_z[2])
+    q_x[2], q_y[2], q_z[2] = q_x[3], q_y[3], q_z[3]
+    q_x[3], q_y[3], q_z[3] = t
+
+    b_x, b_y, b_z = transform_sg_to_cos(q_x, q_y, q_z, lamb)
+
+    sum = 0
+    for i in range(0,4,1):
+        n_i = (i + 1) % 4
+        v0 = [b_x[i], b_y[i], b_z[i]]
+        v1 = [b_x[n_i], b_y[n_i], b_z[n_i]]
+        ang = np.arccos(np.dot(v0, v1))
+        sum += ang*np.cross(v0, v1)[2]
+
+    return sum  / (2.0 * math.pi)
+
+def hemisphere_sg_quad_analytical_integral2(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb):
+    q_x, q_y, q_z = quad_edge_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
+    t = (q_x[2], q_y[2], q_z[2])
+    q_x[2], q_y[2], q_z[2] = q_x[3], q_y[3], q_z[3]
+    q_x[3], q_y[3], q_z[3] = t
+
+    norms = np.sqrt(q_x*q_x + q_y*q_y + q_z*q_z)
+    q_nx, q_ny, q_nz = (q_x, q_y, q_z)/norms
+
+    max_z = max(q_nz[0], max(q_nz[1], max(q_nz[2], q_nz[3])))
+    min_z = min(q_nz[0], min(q_nz[1], min(q_nz[2], q_nz[3])))
+
+    sid_norm = np.sqrt(q_nx*q_nx + q_ny*q_ny)
+    b_x = q_nx/sid_norm
+    phis = np.arccos(b_x)
+
+    max_phi = max(phis[0],max(phis[1],max(phis[2], phis[3])))
+    min_phi = min(phis[0],min(phis[1],min(phis[2], phis[3])))
+    del_phi = max_phi - min_phi
+
+    return sg_hem(lamb, max_z, min_z) * (del_phi/(2.0*math.pi))/math.pi
+
 def numerically_verify_quad_sg_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb):
     int_val = 0
     n = create_normal(q_theta, q_phi)
@@ -91,12 +148,13 @@ def numerically_verify_quad_sg_int(samples, thetaVals, phiVals, q_theta, q_phi, 
         r_val = 0
         for j in range(0, samples, 1):
             dir_x, dir_y, dir_z = create_normal(thetaVals[i], phiVals[j])
-            r_val += 2.0 * math.pi * math.sin(thetaVals[i]) * sg(dir_z, lamb) 
+            r_val += 2.0 * math.pi * math.sin(thetaVals[i]) * sg(dir_z, lamb) * hits_plane(n, bi, bj, q_c,q_halfwidth, q_halfheight,dir_x, dir_y, dir_z)
         r_val /= samples
         int_val += math.pi/2.0*r_val
     int_val /= samples
     print("monte carlo integral: " + str(int_val/math.pi))
-    print("analytical integral: " + str(hemisphere_cos_quad_analytical_integral(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)))
+    print("analytical integral: " + str(hemisphere_sg_quad_analytical_integral(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)))
+    print("analytical integral2: " + str(hemisphere_sg_quad_analytical_integral2(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)))
 
 def hits_plane(plane_n, plane_u, plane_v, plane_c, plane_halfwidth, plane_halfheight, dir_x, dir_y, dir_z):
     d = plane_n[0] * plane_c[0] + plane_n[1] * plane_c[1] + plane_n[2] * plane_c[2] 
@@ -126,7 +184,7 @@ ax.set_xlim3d(-5.0, 5.0)
 ax.set_ylim3d(-5.0, 5.0)
 ax.set_zlim3d(-5.0, 5.0)
 
-lamb = 4
+lamb = 2.0
 sg_v = sg(z, lamb)# - sg(-1,lamb)
 #x = sg_v * x
 #y = sg_v * y
@@ -137,10 +195,10 @@ sg_v = sg(z, lamb)# - sg(-1,lamb)
 
 q_samples = 9
 q_theta = math.pi*0.5*0.1#0.3 * math.pi * 0.5
-q_phi = 0.1*2.0 * math.pi
-q_c = (4, 7, 4)
-q_halfwidth =  10
-q_halfheight =  10
+q_phi = 0.1 * 2.0 * math.pi
+q_c = (32, 8, 4)
+q_halfwidth = 10
+q_halfheight = 10
 
 quad_edge_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
 q_x, q_y, q_z = quad_sample_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, q_samples)
@@ -152,13 +210,18 @@ e_x, e_y, e_z = quad_edge_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
 e_norms = np.sqrt(e_x*e_x + e_y*e_y + e_z*e_z)
 e_nx, e_ny, e_nz = (e_x, e_y, e_z) / e_norms
 
-#ax.scatter(q_x, q_y, q_z, marker='^')
+ax.scatter(q_x, q_y, q_z, marker='^')
+
+t_x, t_y, t_z = transform_sg_to_cos(q_x, q_y, q_z, lamb)
+
+ax.scatter(t_x, t_y, t_z, marker='o')
+
 #ax.scatter(e_x, e_y, e_z, marker='o', color='blue')
 #ax.scatter(e_nx, e_ny, e_nz, marker='o', color='blue')
-ax.scatter(e_nx[0], e_ny[0], e_nz[0], marker='o', color='red')
-ax.scatter(e_nx[1], e_ny[1], e_nz[1], marker='o', color='green')
-ax.scatter(e_nx[3], e_ny[3], e_nz[3], marker='o', color='blue')
-ax.scatter(e_nx[2], e_ny[2], e_nz[2], marker='o', color='orange')
+#ax.scatter(e_nx[0], e_ny[0], e_nz[0], marker='o', color='red')
+#ax.scatter(e_nx[1], e_ny[1], e_nz[1], marker='o', color='green')
+#ax.scatter(e_nx[3], e_ny[3], e_nz[3], marker='o', color='blue')
+#ax.scatter(e_nx[2], e_ny[2], e_nz[2], marker='o', color='orange')
 #ax.scatter(q_cx, q_cy, q_cz, marker='^')
 
 """
@@ -171,10 +234,9 @@ ax.plot_trisurf(np.ravel(q_px), np.ravel(q_py), np.ravel(q_pz), color='blue')
 #ax.plot_trisurf(np.ravel(q_cx), np.ravel(q_cy), np.ravel(q_cz))
 numerically_verify_sg_int(samples, thetaVals)
 """
-#plt.show()
 
-
-numerically_verify_quad_cos_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
-#numerically_verify_quad_sg_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)
+#numerically_verify_quad_cos_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
+numerically_verify_quad_sg_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)
+plt.show()
 
 
