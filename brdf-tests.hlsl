@@ -379,25 +379,59 @@ float sg_p_int_brute_force(float lamb, float deltaPhi, float costheta0, float co
 {
     float bottomTheta = min(costheta0, costheta1);
     float topTheta = max(costheta0, costheta1);
+#if 0
     float e = sg_integral(lamb, deltaPhi, 1.0, topTheta);
     float b = 0;
-    #define LOW_ITERATIONS 128
+    #define LOW_ITERATIONS 9
     for (uint i = 0; i < LOW_ITERATIONS; ++i)
     {
         float t = ((float)i/LOW_ITERATIONS);
         float tNext = (((float)i+1)/LOW_ITERATIONS);
         float tInv = 1.0 - t;
         float thetaDelta = (bottomTheta - topTheta);
-        b += sg_integral(lamb, deltaPhi * tInv, topTheta + thetaDelta * t, topTheta + thetaDelta * tNext)  * sin(topTheta + thetaDelta * t);
-        //b += sg_integral(lamb, deltaPhi, 1.0, topTheta + thetaDelta * tNext)  * sin(topTheta + thetaDelta * t);
+        b += sg_integral(lamb, deltaPhi * tInv, topTheta + thetaDelta * t, topTheta + thetaDelta * tNext);
     }
     return e + b; 
+#elif 1
+    float b = 0;
+    float angTop = acos(topTheta);
+    float angBottom = acos(bottomTheta);
+    #define LOW_ITERATIONS 128
+    for (uint i = 0; i < LOW_ITERATIONS; ++i)
+    {
+        float t = ((float)i/LOW_ITERATIONS);
+        float theta = lerp(angTop, angBottom, t);
+        b += sg_integral(lamb, deltaPhi/(LOW_ITERATIONS), 1.0, cos(theta));
+    }
+    return b;
+#else
+    #define IT_PHI 8
+    #define IT_THETA 8
+    float b = 0;
+    float angTop = acos(topTheta);
+    float angBottom = acos(bottomTheta);
+    for (uint i = 0; i < IT_PHI; ++i)
+    {
+        float integ = 0;
+        float range = lerp(angTop, angBottom, (float)i/(float)IT_PHI);
+        for (uint j = 0; j < IT_THETA; ++j)
+        {
+            float t = (float)j / (float)IT_THETA;
+            float thet = range * t;
+            integ += exp(lamb * (cos(thet) - 1)) * sin(thet) * thet / ((float)IT_THETA);
+        }
+
+        b += integ * deltaPhi;///((float)IT_PHI)); 
+    }
+    return b;
+#endif
 }
 
 
 float sg_area_sign(float3 a, float3 b)
 {
-    return cross(a, b).z > 0.0 ? -1.0 : 1.0;
+    float3 c = (cross(a, b));
+    return (c.z > 0.0 ? -1.0 : 1.0);
 }
 
 void lightingSGAnalytic(uint seed, float3 worldPos, float roughness, float3 n, float3 v, out float3 diff, out float3 spec)
@@ -437,8 +471,8 @@ void lightingSGAnalytic(uint seed, float3 worldPos, float roughness, float3 n, f
     spec += sg_p_int_brute_force(lamb, e2, v2n.z, v3n.z)* sg_area_sign(v2n, v3n);
     spec += sg_p_int_brute_force(lamb, e3, v3n.z, v0n.z)* sg_area_sign(v3n, v0n);
     #endif
-    spec = max(spec, 0);
-    spec *= g_lightIntensity;
+    spec = abs(spec);
+    spec *= g_lightIntensity * 0.25;
 }
 
 
