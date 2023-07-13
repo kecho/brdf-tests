@@ -360,43 +360,6 @@ void lightingSG(uint seed, float3 worldPos, float roughness, float3 n, float3 v,
     #endif
 }
 
-void lightingSGAnalytic2(uint seed, float3 worldPos, float roughness, float3 n, float3 v, out float3 diff, out float3 spec)
-{
-    Quad quad = getLightSource();
-
-    float3 R = reflect(v, n);
-    float3x3 basis = transpose(inventBasisFromNormal(-R));
-    float lamb = 13 * g_roughness;
-
-    float3 v0 = mul(quad.c + quad.r * quad.e.x + quad.u * quad.e.y - worldPos, basis);
-    float3 v1 = mul(quad.c - quad.r * quad.e.x + quad.u * quad.e.y - worldPos, basis);
-    float3 v2 = mul(quad.c - quad.r * quad.e.x - quad.u * quad.e.y - worldPos, basis);
-    float3 v3 = mul(quad.c + quad.r * quad.e.x - quad.u * quad.e.y - worldPos, basis);
-
-    float3 v0n = normalize(v0);
-    float3 v1n = normalize(v1);
-    float3 v2n = normalize(v2);
-    float3 v3n = normalize(v3);
-
-    float4 dots = -float4(v0n.z, v1n.z, v2n.z, v3n.z); 
-
-    float max_z = max(dots.x,max(dots.y, max(dots.z, dots.w)));
-    float min_z = min(dots.x,min(dots.y, min(dots.z, dots.w)));
-
-    float sg_int_hem = (2.0 * PI / (1.0/lamb)) * (exp(lamb*(max_z - 1)) - exp(lamb*(min_z - 1)));
-
-    float bx0 = acos(normalize(v0n.xy).x); 
-    float bx1 = acos(normalize(v1n.xy).x); 
-    float bx2 = acos(normalize(v2n.xy).x); 
-    float bx3 = acos(normalize(v3n.xy).x); 
-
-    float max_phi = max(bx0, max(bx1, max(bx2, bx3)));
-    float min_phi = min(bx0, min(bx1, min(bx2, bx3)));
-
-    spec = sg_int_hem * ((max_phi - min_phi)/(2.0*PI)) / PI;
-    diff = 0;
-}
-
 float sg_hem(float lamb, float costheta0, float costheta1)
 {
     return 2.0 * PI * (1.0/lamb) * (exp(lamb*(costheta0 - 1)) - exp(lamb*(costheta1 - 1)));
@@ -449,54 +412,6 @@ void lightingSGAnalytic3(uint seed, float3 worldPos, float roughness, float3 n, 
     sum += e3*sg_p_int(lamb, as3, as0) * (cross(v3n, v0n).z > 0.0 ? -1 : 1);
 
     spec = g_lightIntensity * (sum / (sg_hem(lamb, 1.0, 0.0)));
-    diff = 0;
-}
-
-void lightingSGAnalytic(uint seed, float3 worldPos, float roughness, float3 n, float3 v, out float3 diff, out float3 spec)
-{
-    Quad quad = getLightSource();
-
-    float3 R = reflect(v, n);
-    float3x3 basis = transpose(inventBasisFromNormal(-R));
-    float lamb = 13 * g_roughness;
-
-    float3 v0 = mul(quad.c + quad.r * quad.e.x + quad.u * quad.e.y - worldPos, basis);
-    float3 v1 = mul(quad.c - quad.r * quad.e.x + quad.u * quad.e.y - worldPos, basis);
-    float3 v2 = mul(quad.c - quad.r * quad.e.x - quad.u * quad.e.y - worldPos, basis);
-    float3 v3 = mul(quad.c + quad.r * quad.e.x - quad.u * quad.e.y - worldPos, basis);
-
-    float3 v0n = normalize(v0);
-    float3 v1n = normalize(v1);
-    float3 v2n = normalize(v2);
-    float3 v3n = normalize(v3);
-
-    float2 bx0 = normalize(v0n.xy); 
-    float2 bx1 = normalize(v1n.xy); 
-    float2 bx2 = normalize(v2n.xy); 
-    float2 bx3 = normalize(v3n.xy); 
-
-    float new0_z = exp(lamb * (v0n.z - 1.0));
-    float new1_z = exp(lamb * (v1n.z - 1.0));
-    float new2_z = exp(lamb * (v2n.z - 1.0));
-    float new3_z = exp(lamb * (v3n.z - 1.0));
-
-    float new_z0_inv = sqrt(abs(1.0 - new0_z*new0_z));
-    float new_z1_inv = sqrt(abs(1.0 - new1_z*new1_z));
-    float new_z2_inv = sqrt(abs(1.0 - new2_z*new2_z));
-    float new_z3_inv = sqrt(abs(1.0 - new3_z*new3_z));
-
-    v0n = float3(bx0 * new_z0_inv, new0_z);
-    v1n = float3(bx1 * new_z1_inv, new1_z);
-    v2n = float3(bx2 * new_z2_inv, new2_z);
-    v3n = float3(bx3 * new_z3_inv, new3_z);
-
-    spec = 0;
-    spec += cross(v0n,v1n).z * acos(dot(v0n,v1n));
-    spec += cross(v1n,v2n).z * acos(dot(v1n,v2n));
-    spec += cross(v2n,v3n).z * acos(dot(v2n,v3n));
-    spec += cross(v2n,v0n).z * acos(dot(v3n,v0n));
-
-    spec = spec / (2.0 * PI);
     diff = 0;
 }
 
