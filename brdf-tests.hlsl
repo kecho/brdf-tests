@@ -388,7 +388,8 @@ float sg_p_int_brute_force(float lamb, float deltaPhi, float costheta0, float co
         float tNext = (((float)i+1)/LOW_ITERATIONS);
         float tInv = 1.0 - t;
         float thetaDelta = (bottomTheta - topTheta);
-        b += sg_integral(lamb, deltaPhi * tInv, topTheta + thetaDelta * t, topTheta + thetaDelta * tNext) * sin(topTheta + thetaDelta * t);
+        b += sg_integral(lamb, deltaPhi * tInv, topTheta + thetaDelta * t, topTheta + thetaDelta * tNext)  * sin(topTheta + thetaDelta * t);
+        //b += sg_integral(lamb, deltaPhi, 1.0, topTheta + thetaDelta * tNext)  * sin(topTheta + thetaDelta * t);
     }
     return e + b; 
 }
