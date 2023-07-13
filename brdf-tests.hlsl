@@ -34,6 +34,8 @@ cbuffer constants : register(b0)
 #define g_lightHeight g_lightArgs0.z
 #define g_lightSamples (uint)asint(g_lightArgs0.w)
 
+#define LambdaFactor 400
+
 float3 drawLine(float2 p0, float2 p1, float thickness, float3 col, float2 coord)
 {
     float2 dVec = p1 - p0;
@@ -320,7 +322,7 @@ void lightingSG(uint seed, float3 worldPos, float roughness, float3 n, float3 v,
     float3 radCol = 0.0;
     
     float3 R = reflect(v, n);
-    float3x3 basis = transpose(inventBasisFromNormal(R));
+    float3x3 basis = transpose(inventBasisFromNormal(n));
     diff = 0;
     spec = 0;
 
@@ -342,7 +344,7 @@ void lightingSG(uint seed, float3 worldPos, float roughness, float3 n, float3 v,
         float3 L = r.d;
         float3 H = normalize(L + V);
 
-        float lambd = 13.0 * g_roughness;
+        float lambd = LambdaFactor * g_roughness;
         float FweightOverPdf = exp(lambd * (dot(R, L) - 1.0));
         bool isSpec = randomFloat(rng) < FweightOverPdf;
         RayHit rh = traceScene(r);
@@ -360,60 +362,84 @@ void lightingSG(uint seed, float3 worldPos, float roughness, float3 n, float3 v,
     #endif
 }
 
-float sg_hem(float lamb, float costheta0, float costheta1)
+float sg_integral(float lamb, float deltaPhi, float costheta0, float costheta1)
 {
-    return 2.0 * PI * (1.0/lamb) * (exp(lamb*(costheta0 - 1)) - exp(lamb*(costheta1 - 1)));
+    return deltaPhi * (1.0/lamb) * (exp(lamb*(costheta0 - 1)) - exp(lamb*(costheta1 - 1)));
 }
 
-float sg_p_int(float lamb, float as0, float as1)
+float sg_p_int(float lamb, float deltaPhi, float costheta0, float costheta1)
 {
-    float topTheta = min(as0,as1);
-    float bottomTheta = max(as0,as1);
-    return (sg_hem(lamb, 1.0, topTheta)) - 0.1*(sg_hem(lamb, bottomTheta, topTheta));
+    float bottomTheta = min(costheta0, costheta1);
+    float topTheta = max(costheta0, costheta1);
+
+    return max(sg_integral(lamb, deltaPhi, 1.0, topTheta) - 0.3 * sg_integral(lamb, deltaPhi, topTheta, bottomTheta), 0.0);
 }
 
-void lightingSGAnalytic3(uint seed, float3 worldPos, float roughness, float3 n, float3 v, out float3 diff, out float3 spec)
+float sg_p_int_brute_force(float lamb, float deltaPhi, float costheta0, float costheta1)
+{
+    float bottomTheta = min(costheta0, costheta1);
+    float topTheta = max(costheta0, costheta1);
+    float e = sg_integral(lamb, deltaPhi, 1.0, topTheta);
+    float b = 0;
+    #define LOW_ITERATIONS 128
+    for (uint i = 0; i < LOW_ITERATIONS; ++i)
+    {
+        float t = ((float)i/LOW_ITERATIONS);
+        float tNext = (((float)i+1)/LOW_ITERATIONS);
+        float tInv = 1.0 - t;
+        float thetaDelta = (bottomTheta - topTheta);
+        b += sg_integral(lamb, deltaPhi * tInv, topTheta + thetaDelta * t, topTheta + thetaDelta * tNext) * sin(topTheta + thetaDelta * t);
+    }
+    return e + b; 
+}
+
+
+float sg_area_sign(float3 a, float3 b)
+{
+    return cross(a, b).z > 0.0 ? -1.0 : 1.0;
+}
+
+void lightingSGAnalytic(uint seed, float3 worldPos, float roughness, float3 n, float3 v, out float3 diff, out float3 spec)
 {
     Quad quad = getLightSource();
 
     float3 R = reflect(v, n);
-    float3x3 basis = transpose(inventBasisFromNormal(-R));
-    float lamb = 13 * g_roughness;
+    float3x3 basisInv = inventBasisFromNormal(R);
+    float lamb = LambdaFactor * g_roughness;
 
-    float3 v0 = mul(basis, quad.c + quad.r * quad.e.x + quad.u * quad.e.y - worldPos);
-    float3 v1 = mul(basis, quad.c - quad.r * quad.e.x + quad.u * quad.e.y - worldPos);
-    float3 v2 = mul(basis, quad.c - quad.r * quad.e.x - quad.u * quad.e.y - worldPos);
-    float3 v3 = mul(basis, quad.c + quad.r * quad.e.x - quad.u * quad.e.y - worldPos);
+    float3 v0 = mul(basisInv, quad.c + quad.r * quad.e.x + quad.u * quad.e.y - worldPos);
+    float3 v1 = mul(basisInv, quad.c - quad.r * quad.e.x + quad.u * quad.e.y - worldPos);
+    float3 v2 = mul(basisInv, quad.c - quad.r * quad.e.x - quad.u * quad.e.y - worldPos);
+    float3 v3 = mul(basisInv, quad.c + quad.r * quad.e.x - quad.u * quad.e.y - worldPos);
 
     float3 v0n = normalize(v0);
     float3 v1n = normalize(v1);
     float3 v2n = normalize(v2);
     float3 v3n = normalize(v3);
 
-    float as0 = (v0n.z);
-    float as1 = (v1n.z);
-    float as2 = (v2n.z);
-    float as3 = (v3n.z);
-
-    
-    float sum = 0.0;
-
-    float3 f= float3(1,1,0);
     float e0 = acos(dot(normalize(v0n.xy), normalize(v1n.xy)));
-    sum += e0*sg_p_int(lamb, as0, as1) * (cross(v0n, v1n).z > 0.0 ? -1 : 1);
-
     float e1 = acos(dot(normalize(v1n.xy), normalize(v2n.xy)));
-    sum += e1*sg_p_int(lamb, as1, as2) * (cross(v1n, v2n).z > 0.0 ? -1 : 1);
-
     float e2 = acos(dot(normalize(v2n.xy), normalize(v3n.xy)));
-    sum += e2*sg_p_int(lamb, as2, as3) * (cross(v2n, v3n).z > 0.0 ? -1 : 1);
-
     float e3 = acos(dot(normalize(v3n.xy), normalize(v0n.xy)));
-    sum += e3*sg_p_int(lamb, as3, as0) * (cross(v3n, v0n).z > 0.0 ? -1 : 1);
 
-    spec = g_lightIntensity * (sum / (sg_hem(lamb, 1.0, 0.0)));
+    spec = 0;
     diff = 0;
+
+    #if 0
+    spec += sg_p_int(lamb, e0, v0n.z, v1n.z) * sg_area_sign(v0n, v1n);
+    spec += sg_p_int(lamb, e1, v1n.z, v2n.z) * sg_area_sign(v1n, v2n);
+    spec += sg_p_int(lamb, e2, v2n.z, v3n.z) * sg_area_sign(v2n, v3n);
+    spec += sg_p_int(lamb, e3, v3n.z, v0n.z) * sg_area_sign(v3n, v0n);
+    #else
+    spec += sg_p_int_brute_force(lamb, e0, v0n.z, v1n.z)* sg_area_sign(v0n, v1n);
+    spec += sg_p_int_brute_force(lamb, e1, v1n.z, v2n.z)* sg_area_sign(v1n, v2n);
+    spec += sg_p_int_brute_force(lamb, e2, v2n.z, v3n.z)* sg_area_sign(v2n, v3n);
+    spec += sg_p_int_brute_force(lamb, e3, v3n.z, v0n.z)* sg_area_sign(v3n, v0n);
+    #endif
+    spec = max(spec, 0);
+    spec *= g_lightIntensity;
 }
+
 
 float3 linearToSRGB(float3 col)
 {
@@ -464,9 +490,9 @@ void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
         }
 
         float3 diff, spec;
-        //lightingSGAnalytic3(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
+        lightingSGAnalytic(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
         //lightingSG(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
-        lighting(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
+        //lighting(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
         col = diff*alb + spec + e;
     }
 
