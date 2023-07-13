@@ -139,6 +139,29 @@ def hemisphere_sg_quad_analytical_integral2(q_theta, q_phi, q_halfwidth, q_halfh
 
     return sg_hem(lamb, max_z, min_z) * (del_phi/(2.0*math.pi))/math.pi
 
+def hemisphere_sg_quad_analytical_integral3(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb):
+
+    q_x, q_y, q_z = quad_edge_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
+    t = (q_x[2], q_y[2], q_z[2])
+    q_x[2], q_y[2], q_z[2] = q_x[3], q_y[3], q_z[3]
+    q_x[3], q_y[3], q_z[3] = t
+    q_norms = np.sqrt(q_x*q_x + q_y*q_y + q_z*q_z)
+    b_x, b_y, b_z = (q_x, q_y, q_z)/q_norms
+
+    sum = 0
+    for i in range(0,4,1):
+        n_i = (i + 1) % 4
+        v0 = [b_x[i], b_y[i], b_z[i]]
+        v1 = [b_x[n_i], b_y[n_i], b_z[n_i]]
+        angs0 = (v0[2], np.arccos(v0[0]) if v0[1] > 0 else (math.pi * 2.0) - np.arccos(v0[0]))
+        angs1 = (v1[2], np.arccos(v1[0]) if v1[1] > 0 else (math.pi * 2.0) - np.arccos(v1[0]))
+        cos_theta_top = max(angs0[0], angs1[0])
+        cos_theta_bottom = min(angs0[0], angs1[0])
+        ar = (v1[1] - v0[1]) * sg_hem(lamb, 1.0, cos_theta_top) - 0.6*(v1[1] - v0[1])*sg_hem(lamb, cos_theta_bottom, cos_theta_top)
+        print(ar)
+        sum += ar
+    return sum / math.pi 
+
 def numerically_verify_quad_sg_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb):
     int_val = 0
     n = create_normal(q_theta, q_phi)
@@ -153,8 +176,9 @@ def numerically_verify_quad_sg_int(samples, thetaVals, phiVals, q_theta, q_phi, 
         int_val += math.pi/2.0*r_val
     int_val /= samples
     print("monte carlo integral: " + str(int_val/math.pi))
-    print("analytical integral: " + str(hemisphere_sg_quad_analytical_integral(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)))
-    print("analytical integral2: " + str(hemisphere_sg_quad_analytical_integral2(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)))
+    #print("analytical integral: " + str(hemisphere_sg_quad_analytical_integral(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)))
+    #print("analytical integral2: " + str(hemisphere_sg_quad_analytical_integral2(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)))
+    print("analytical integral3: " + str(hemisphere_sg_quad_analytical_integral3(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)))
 
 def hits_plane(plane_n, plane_u, plane_v, plane_c, plane_halfwidth, plane_halfheight, dir_x, dir_y, dir_z):
     d = plane_n[0] * plane_c[0] + plane_n[1] * plane_c[1] + plane_n[2] * plane_c[2] 
@@ -194,9 +218,9 @@ sg_v = sg(z, lamb)# - sg(-1,lamb)
 #ax.plot_trisurf(np.ravel(x), np.ravel(y), np.ravel(z), cmap='viridis')
 
 q_samples = 9
-q_theta = math.pi*0.5*0.1#0.3 * math.pi * 0.5
-q_phi = 0.1 * 2.0 * math.pi
-q_c = (32, 8, 4)
+q_theta = math.pi*0.5*0.3#0.3 * math.pi * 0.5
+q_phi = 0# * 2.0 * math.pi
+q_c = (8, 8, 4)
 q_halfwidth = 10
 q_halfheight = 10
 
@@ -210,11 +234,9 @@ e_x, e_y, e_z = quad_edge_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
 e_norms = np.sqrt(e_x*e_x + e_y*e_y + e_z*e_z)
 e_nx, e_ny, e_nz = (e_x, e_y, e_z) / e_norms
 
-ax.scatter(q_x, q_y, q_z, marker='^')
-
-t_x, t_y, t_z = transform_sg_to_cos(q_x, q_y, q_z, lamb)
-
-ax.scatter(t_x, t_y, t_z, marker='o')
+#ax.scatter(q_x, q_y, q_z, marker='^')
+#t_x, t_y, t_z = transform_sg_to_cos(q_x, q_y, q_z, lamb)
+#ax.scatter(t_x, t_y, t_z, marker='o')
 
 #ax.scatter(e_x, e_y, e_z, marker='o', color='blue')
 #ax.scatter(e_nx, e_ny, e_nz, marker='o', color='blue')
@@ -237,6 +259,6 @@ numerically_verify_sg_int(samples, thetaVals)
 
 #numerically_verify_quad_cos_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
 numerically_verify_quad_sg_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)
-plt.show()
+#plt.show()
 
 
