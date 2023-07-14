@@ -444,7 +444,7 @@ float3 slerp(float3 p0, float3 p1, float t)
 float sg_p_int_brute_force2(float lamb, float3 v0, float3 v1)
 {
     float s = 0;
-    #define STRIPS 4
+    #define STRIPS 128
     float3 prevVt = v0;
     for (uint i = 0; i < STRIPS; ++i)
     {
