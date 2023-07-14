@@ -396,7 +396,7 @@ float sg_p_int_brute_force(float lamb, float deltaPhi, float costheta0, float co
     float b = 0;
     float angTop = acos(topTheta);
     float angBottom = acos(bottomTheta);
-    #define LOW_ITERATIONS 128
+    #define LOW_ITERATIONS 4
     for (uint i = 0; i < LOW_ITERATIONS; ++i)
     {
         float t = ((float)i/LOW_ITERATIONS);
@@ -427,6 +427,36 @@ float sg_p_int_brute_force(float lamb, float deltaPhi, float costheta0, float co
 #endif
 }
 
+float3 slerp(float3 p0, float3 p1, float t)
+{
+  float dotp = dot(normalize(p0), normalize(p1));
+  if ((dotp > 0.9999) || (dotp<-0.9999))
+  {
+    if (t<=0.5)
+      return p0;
+    return p1;
+  }
+  float theta = acos(dotp);
+  float3 P = ((p0*sin((1-t)*theta) + p1*sin(t*theta)) / sin(theta));
+  return P;
+}
+
+float sg_p_int_brute_force2(float lamb, float3 v0, float3 v1)
+{
+    float s = 0;
+    #define STRIPS 4
+    float3 prevVt = v0;
+    for (uint i = 0; i < STRIPS; ++i)
+    {
+        float t = ((float)i + 0.5)/(float)(STRIPS);
+        float3 vt = normalize(lerp(v0, v1, t));
+        s += sg_integral(lamb, acos(clamp(-1.0, 1.0, dot(normalize(prevVt.xy), normalize(vt.xy)))), 1.0, vt.z);
+        prevVt = vt;
+    }
+
+    return s;
+}
+
 
 float sg_area_sign(float3 a, float3 b)
 {
@@ -452,10 +482,10 @@ void lightingSGAnalytic(uint seed, float3 worldPos, float roughness, float3 n, f
     float3 v2n = normalize(v2);
     float3 v3n = normalize(v3);
 
-    float e0 = acos(dot(normalize(v0n.xy), normalize(v1n.xy)));
-    float e1 = acos(dot(normalize(v1n.xy), normalize(v2n.xy)));
-    float e2 = acos(dot(normalize(v2n.xy), normalize(v3n.xy)));
-    float e3 = acos(dot(normalize(v3n.xy), normalize(v0n.xy)));
+    float e0 = acos(dot(normalize(v0n.xyz), normalize(v1n.xyz)));
+    float e1 = acos(dot(normalize(v1n.xyz), normalize(v2n.xyz)));
+    float e2 = acos(dot(normalize(v2n.xyz), normalize(v3n.xyz)));
+    float e3 = acos(dot(normalize(v3n.xyz), normalize(v0n.xyz)));
 
     spec = 0;
     diff = 0;
@@ -465,11 +495,16 @@ void lightingSGAnalytic(uint seed, float3 worldPos, float roughness, float3 n, f
     spec += sg_p_int(lamb, e1, v1n.z, v2n.z) * sg_area_sign(v1n, v2n);
     spec += sg_p_int(lamb, e2, v2n.z, v3n.z) * sg_area_sign(v2n, v3n);
     spec += sg_p_int(lamb, e3, v3n.z, v0n.z) * sg_area_sign(v3n, v0n);
-    #else
+    #elif 0
     spec += sg_p_int_brute_force(lamb, e0, v0n.z, v1n.z)* sg_area_sign(v0n, v1n);
     spec += sg_p_int_brute_force(lamb, e1, v1n.z, v2n.z)* sg_area_sign(v1n, v2n);
     spec += sg_p_int_brute_force(lamb, e2, v2n.z, v3n.z)* sg_area_sign(v2n, v3n);
     spec += sg_p_int_brute_force(lamb, e3, v3n.z, v0n.z)* sg_area_sign(v3n, v0n);
+    #elif 1
+    spec += sg_p_int_brute_force2(lamb, v0n, v1n)* sg_area_sign(v0n, v1n);
+    spec += sg_p_int_brute_force2(lamb, v1n, v2n)* sg_area_sign(v1n, v2n);
+    spec += sg_p_int_brute_force2(lamb, v2n, v3n)* sg_area_sign(v2n, v3n);
+    spec += sg_p_int_brute_force2(lamb, v3n, v0n)* sg_area_sign(v3n, v0n);
     #endif
     spec = abs(spec);
     spec *= g_lightIntensity * 0.25;
