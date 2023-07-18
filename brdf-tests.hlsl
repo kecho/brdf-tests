@@ -322,7 +322,7 @@ void lightingSG(uint seed, float3 worldPos, float roughness, float3 n, float3 v,
     float3 radCol = 0.0;
     
     float3 R = reflect(v, n);
-    float3x3 basis = transpose(inventBasisFromNormal(n));
+    float3x3 basis = transpose(inventBasisFromNormal(R));
     diff = 0;
     spec = 0;
 
@@ -375,58 +375,6 @@ float sg_p_int(float lamb, float deltaPhi, float costheta0, float costheta1)
     return max(sg_integral(lamb, deltaPhi, 1.0, topTheta) - 0.3 * sg_integral(lamb, deltaPhi, topTheta, bottomTheta), 0.0);
 }
 
-float sg_p_int_brute_force(float lamb, float deltaPhi, float costheta0, float costheta1)
-{
-    float bottomTheta = min(costheta0, costheta1);
-    float topTheta = max(costheta0, costheta1);
-#if 0
-    float e = sg_integral(lamb, deltaPhi, 1.0, topTheta);
-    float b = 0;
-    #define LOW_ITERATIONS 9
-    for (uint i = 0; i < LOW_ITERATIONS; ++i)
-    {
-        float t = ((float)i/LOW_ITERATIONS);
-        float tNext = (((float)i+1)/LOW_ITERATIONS);
-        float tInv = 1.0 - t;
-        float thetaDelta = (bottomTheta - topTheta);
-        b += sg_integral(lamb, deltaPhi * tInv, topTheta + thetaDelta * t, topTheta + thetaDelta * tNext);
-    }
-    return e + b; 
-#elif 1
-    float b = 0;
-    float angTop = acos(topTheta);
-    float angBottom = acos(bottomTheta);
-    #define LOW_ITERATIONS 4
-    for (uint i = 0; i < LOW_ITERATIONS; ++i)
-    {
-        float t = ((float)i/LOW_ITERATIONS);
-        float theta = lerp(angTop, angBottom, t);
-        b += sg_integral(lamb, deltaPhi/(LOW_ITERATIONS), 1.0, cos(theta));
-    }
-    return b;
-#else
-    #define IT_PHI 8
-    #define IT_THETA 8
-    float b = 0;
-    float angTop = acos(topTheta);
-    float angBottom = acos(bottomTheta);
-    for (uint i = 0; i < IT_PHI; ++i)
-    {
-        float integ = 0;
-        float range = lerp(angTop, angBottom, (float)i/(float)IT_PHI);
-        for (uint j = 0; j < IT_THETA; ++j)
-        {
-            float t = (float)j / (float)IT_THETA;
-            float thet = range * t;
-            integ += exp(lamb * (cos(thet) - 1)) * sin(thet) * thet / ((float)IT_THETA);
-        }
-
-        b += integ * deltaPhi;///((float)IT_PHI)); 
-    }
-    return b;
-#endif
-}
-
 float3 slerp(float3 p0, float3 p1, float t)
 {
   float dotp = dot(normalize(p0), normalize(p1));
@@ -441,8 +389,10 @@ float3 slerp(float3 p0, float3 p1, float t)
   return P;
 }
 
-float sg_p_int_brute_force2(float lamb, float3 v0, float3 v1)
+float sg_p_int_brute_force(float lamb, float3 v0, float3 v1)
 {
+#if 0
+    // Naive slerp version
     float s = 0;
     #define STRIPS 128
     float3 prevVt = v0;
@@ -455,6 +405,51 @@ float sg_p_int_brute_force2(float lamb, float3 v0, float3 v1)
     }
 
     return s;
+#elif 0
+    // integral along the angles
+    float s = 0;
+    float deltaPhi = acos(dot(v0, v1));
+    float deltaStep = acos(dot(normalize(v0.xy),normalize(v1.xy)));
+    float maxSteps = 8;
+    float dPhi = deltaPhi / (float)maxSteps;
+    float3 prevVt = v0;
+    for (uint i = 0; i < maxSteps; ++i)
+    {
+        float t = ((float)i * dPhi) / deltaPhi;
+        float3 vt = normalize(lerp(v0, v1, t));
+        float q = abs(cross(v0,v1).z);
+        float cosW = (v0.z * sin((1.0 - t)*deltaPhi) + v1.z * sin(t * deltaPhi))/sin(deltaPhi);
+        s += sg_integral(lamb, acos(clamp(-1.0, 1.0, dot(normalize(prevVt.xy), normalize(vt.xy)))), 1.0, cosW);
+        prevVt = vt;
+    }
+
+    return s;
+#elif 1
+    // integral along the angles, using different dtheta
+    float s = 0;
+    float deltaPhi = acos(dot(v0, v1));
+    float deltaStep = acos(dot(normalize(v0.xy),normalize(v1.xy)));
+    float maxSteps = 128;
+    float dPhi = deltaPhi / (float)maxSteps;
+    float3 prevVt = v0;
+    float sinT = sin(2.0 * PI / maxSteps);
+    float cosT = cos(2.0 * PI / maxSteps);
+    float3 V = cross(v0, v1);
+    for (uint i = 0; i < maxSteps; ++i)
+    {
+        float delt = ((float)(1.0) * dPhi)/deltaPhi;
+        float t = ((float)i * dPhi) / deltaPhi;
+        float3 vt = normalize(lerp(v0, v1, t));
+        float q = abs(V.z);
+        float cosW = (v0.z * sin((1.0 - t)*deltaPhi) + v1.z * sin(t * deltaPhi))/sin(deltaPhi);
+        float tanLen = distance(vt.xy, prevVt.xy);
+        float rad = length(vt.xy);
+        s += sg_integral(lamb, atan((tanLen*PI*2.0/maxSteps)/rad), 1.0, vt.z);
+        prevVt = vt;
+    }
+
+    return s;
+#endif
 }
 
 
@@ -482,31 +477,14 @@ void lightingSGAnalytic(uint seed, float3 worldPos, float roughness, float3 n, f
     float3 v2n = normalize(v2);
     float3 v3n = normalize(v3);
 
-    float e0 = acos(dot(normalize(v0n.xyz), normalize(v1n.xyz)));
-    float e1 = acos(dot(normalize(v1n.xyz), normalize(v2n.xyz)));
-    float e2 = acos(dot(normalize(v2n.xyz), normalize(v3n.xyz)));
-    float e3 = acos(dot(normalize(v3n.xyz), normalize(v0n.xyz)));
-
     spec = 0;
     diff = 0;
 
-    #if 0
-    spec += sg_p_int(lamb, e0, v0n.z, v1n.z) * sg_area_sign(v0n, v1n);
-    spec += sg_p_int(lamb, e1, v1n.z, v2n.z) * sg_area_sign(v1n, v2n);
-    spec += sg_p_int(lamb, e2, v2n.z, v3n.z) * sg_area_sign(v2n, v3n);
-    spec += sg_p_int(lamb, e3, v3n.z, v0n.z) * sg_area_sign(v3n, v0n);
-    #elif 0
-    spec += sg_p_int_brute_force(lamb, e0, v0n.z, v1n.z)* sg_area_sign(v0n, v1n);
-    spec += sg_p_int_brute_force(lamb, e1, v1n.z, v2n.z)* sg_area_sign(v1n, v2n);
-    spec += sg_p_int_brute_force(lamb, e2, v2n.z, v3n.z)* sg_area_sign(v2n, v3n);
-    spec += sg_p_int_brute_force(lamb, e3, v3n.z, v0n.z)* sg_area_sign(v3n, v0n);
-    #elif 1
-    spec += sg_p_int_brute_force2(lamb, v0n, v1n)* sg_area_sign(v0n, v1n);
-    spec += sg_p_int_brute_force2(lamb, v1n, v2n)* sg_area_sign(v1n, v2n);
-    spec += sg_p_int_brute_force2(lamb, v2n, v3n)* sg_area_sign(v2n, v3n);
-    spec += sg_p_int_brute_force2(lamb, v3n, v0n)* sg_area_sign(v3n, v0n);
-    #endif
-    spec = abs(spec);
+    spec += sg_p_int_brute_force(lamb, v0n, v1n) * sg_area_sign(v0n, v1n);
+    spec += sg_p_int_brute_force(lamb, v1n, v2n) * sg_area_sign(v1n, v2n);
+    spec += sg_p_int_brute_force(lamb, v2n, v3n) * sg_area_sign(v2n, v3n);
+    spec += sg_p_int_brute_force(lamb, v3n, v0n) * sg_area_sign(v3n, v0n);
+    spec = abs(spec) * (v0n.z < 0 && v1n.z < 0 && v2n.z < 0 && v3n.z < 0 ? 0.0 : 1.0);
     spec *= g_lightIntensity * 0.25;
 }
 

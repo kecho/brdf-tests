@@ -15,6 +15,9 @@ def sg_int_omega(lamb):
 def sg_hem(lamb, costheta0, costheta1):
     return 2.0 * math.pi * (1.0/lamb) * (np.exp(lamb*(costheta0 - 1)) - np.exp(lamb*(costheta1 - 1)))
 
+def sg_hem_range(lamb, costheta0, costheta1):
+    return (1.0/lamb) * (np.exp(lamb*(costheta0 - 1)) - np.exp(lamb*(costheta1 - 1)))
+
 def create_normal(theta, phi):
     return np.array([np.sin(phi)*np.sin(theta), np.cos(phi)*np.sin(theta), np.cos(theta)])
 
@@ -197,6 +200,7 @@ def hemisphere_plane_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, x, y
     it_hits = hits_plane(q_n, q_b[0], q_b[1], q_c, q_halfwidth, q_halfheight, x, y, z)
     return it_hits*(x, y, z)
 
+"""
 samples = 500
 idxX, idxY = np.indices((samples,samples))
 thetaVals, phiVals = np.linspace(0,math.pi/2,samples), np.linspace(0,2.0*math.pi,samples)
@@ -223,7 +227,9 @@ q_phi = 0# * 2.0 * math.pi
 q_c = (8, 8, 4)
 q_halfwidth = 10
 q_halfheight = 10
+"""
 
+"""
 quad_edge_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
 q_x, q_y, q_z = quad_sample_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c, q_samples)
 q_leninv = (1.0/(np.sqrt(q_x * q_x + q_y*q_y + q_z*q_z)))
@@ -233,6 +239,7 @@ sp_x, sp_y, sp_z = hemisphere_plane_points(q_theta, q_phi, q_halfwidth, q_halfhe
 e_x, e_y, e_z = quad_edge_points(q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
 e_norms = np.sqrt(e_x*e_x + e_y*e_y + e_z*e_z)
 e_nx, e_ny, e_nz = (e_x, e_y, e_z) / e_norms
+"""
 
 #ax.scatter(q_x, q_y, q_z, marker='^')
 #t_x, t_y, t_z = transform_sg_to_cos(q_x, q_y, q_z, lamb)
@@ -256,9 +263,98 @@ ax.plot_trisurf(np.ravel(q_px), np.ravel(q_py), np.ravel(q_pz), color='blue')
 #ax.plot_trisurf(np.ravel(q_cx), np.ravel(q_cy), np.ravel(q_cz))
 numerically_verify_sg_int(samples, thetaVals)
 """
-
 #numerically_verify_quad_cos_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c)
-numerically_verify_quad_sg_int(samples, thetaVals, phiVals, q_theta, q_phi, q_halfwidth, q_halfheight, q_c, lamb)
 #plt.show()
 
 
+def vec_len(v):
+    x, y, z = v
+    return np.sqrt(x*x + y*y + z*z)
+
+def vec_len2(v):
+    x, y = v
+    return np.sqrt(x*x + y*y)
+
+def jacobian_slice_theta(v):
+    print(v[2])
+    v = v/vec_len(v)
+    zb = v
+    yb = np.cross(v, [-1,0,0])
+    yb = yb/vec_len(yb)
+    xb = np.cross(yb, zb)
+    steps = 256
+    a = np.empty(steps, dtype=float)
+    b = np.empty(steps, dtype=float)
+    dt = np.empty(steps, dtype=float)
+    dt2 = np.empty(steps, dtype=float)
+    f_x = np.empty(steps, dtype=float)
+    e = np.empty(steps, dtype=float)
+    e2 = np.empty(steps, dtype=float)
+    tang = np.empty(steps, dtype=float)
+    rad = np.empty(steps, dtype=float)
+    qq,pp = np.empty(steps, dtype=float), np.empty(steps, dtype=float)
+    qq2,pp2 = np.empty(steps, dtype=float), np.empty(steps, dtype=float)
+    ssx,ssy = np.empty(steps, dtype=float), np.empty(steps, dtype=float)
+    tangsX, tangsY = np.empty(steps, dtype=float), np.empty(steps, dtype=float)
+    s = 0
+    s2 = 0
+    cosTheta, sinTheta = np.cos(2.0*np.pi/steps), np.sin(2.0*np.pi/steps)
+    for i in range(0,steps,1):
+        tp = (i + 0.5 - 1.0)/steps
+        t = (i + 0.5)/steps
+        ang =   t * np.pi + 0.5 * np.pi
+        angp =  tp * np.pi + 0.5 * np.pi
+        tvp = np.cos(angp) * xb + np.sin(angp) * yb
+        tv = np.cos(ang) * xb + np.sin(ang) * yb
+
+        p_tvp = (tvp[0], tvp[1])
+        p_tv  = (tv[0], tv[1])
+
+        qq[i] = p_tvp[0]
+        pp[i] = p_tvp[1]
+        qq2[i] = np.cos(ang)*v[2]
+        pp2[i] = np.sin(ang)
+
+        p_tvp = p_tvp/vec_len2(p_tvp)
+        p_tv = p_tv/vec_len2(p_tv)
+
+        a[i] = ang/np.pi
+        b[i] = ang
+        dt[i] = np.arccos(np.dot(p_tvp, p_tv))
+        f_x[i] = sg_hem_range(13.0, 1.0, tv[2])
+
+        rad[i] = np.sqrt(np.sin(ang)**2 + (v[2]*np.cos(ang))**2)
+        tang[i] = np.sqrt(np.cos(ang)**2 + (v[2]*np.sin(ang))**2)* np.pi / steps
+        tangsX[i] = np.sin(ang)*v[2] * np.pi / steps
+        tangsY[i] = -np.cos(ang)# * np.pi * 2.0 / steps
+        #dt2[i] =  np.arctan(tang[i]/rad[i])
+        #dt2[i] = tang[i]/np.sqrt(tang[i]*tang[i] + rad[i]*rad[i])
+        #dt2[i] = tang[i]#/rad[i]
+        err = ((1.0 - v[2])*np.cos(ang)*np.cos(ang) + v[2])**0.25
+        dt2[i] = tang[i]/rad[i]
+
+        ssx[i] = p_tv[0]
+        ssy[i] = p_tv[1]
+
+        e[i] = s
+        e2[i] = s2 
+        s += f_x[i]*dt[i]
+        s2 += f_x[i]*dt2[i]
+
+    fig, ax = plt.subplots()
+    #ax.set_aspect('equal')
+    #for i in range(0, steps, 1):
+    #    ax.plot([qq[i], qq[i]+tangsX[i]], [pp[i], pp[i] + tangsY[i]])
+    #ax.plot(a,f_x, color='red')
+    #ax.plot(a,tang,color='blue')
+    ax.plot(a,e,color='red')
+    ax.plot(a,e2,color='green')
+    #ax.plot(a,e,color='blue')
+    #ax.plot(a,e2,color='green')
+    #ax.scatter(qq, pp)
+    #ax.scatter(ssx, ssy)
+    #ax.scatter(qq2, pp2)
+    ax.grid()
+    plt.show()
+
+jacobian_slice_theta(np.array([-0.5, 0.0, 0.5])) 
