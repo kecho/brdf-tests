@@ -275,9 +275,10 @@ def vec_len2(v):
     x, y = v
     return np.sqrt(x*x + y*y)
 
-def jacobian_slice_theta(v):
-    print(v[2])
-    v = v/vec_len(v)
+def jacobian_slice_theta(v_z,ax,col):
+    v = [-np.sqrt(1.0 - v_z*v_z), 0, v_z]
+    #v = v_z
+    #v = v / vec_len(v)
     zb = v
     yb = np.cross(v, [-1,0,0])
     yb = yb/vec_len(yb)
@@ -296,14 +297,15 @@ def jacobian_slice_theta(v):
     qq2,pp2 = np.empty(steps, dtype=float), np.empty(steps, dtype=float)
     ssx,ssy = np.empty(steps, dtype=float), np.empty(steps, dtype=float)
     tangsX, tangsY = np.empty(steps, dtype=float), np.empty(steps, dtype=float)
+    radsX, radsY = np.empty(steps, dtype=float), np.empty(steps, dtype=float)
     s = 0
     s2 = 0
     cosTheta, sinTheta = np.cos(2.0*np.pi/steps), np.sin(2.0*np.pi/steps)
     for i in range(0,steps,1):
         tp = (i + 0.5 - 1.0)/steps
         t = (i + 0.5)/steps
-        ang =   t * np.pi + 0.5 * np.pi
-        angp =  tp * np.pi + 0.5 * np.pi
+        ang =   2.0 * t * np.pi 
+        angp =  2.0 * tp * np.pi
         tvp = np.cos(angp) * xb + np.sin(angp) * yb
         tv = np.cos(ang) * xb + np.sin(ang) * yb
 
@@ -321,17 +323,18 @@ def jacobian_slice_theta(v):
         a[i] = ang/np.pi
         b[i] = ang
         dt[i] = np.arccos(np.dot(p_tvp, p_tv))
-        f_x[i] = sg_hem_range(13.0, 1.0, tv[2])
+        f_x[i] = sg_hem_range(50.0, 1.0, tv[2])
 
         rad[i] = np.sqrt(np.sin(ang)**2 + (v[2]*np.cos(ang))**2)
-        tang[i] = np.sqrt(np.cos(ang)**2 + (v[2]*np.sin(ang))**2)* np.pi / steps
-        tangsX[i] = np.sin(ang)*v[2] * np.pi / steps
-        tangsY[i] = -np.cos(ang)# * np.pi * 2.0 / steps
-        #dt2[i] =  np.arctan(tang[i]/rad[i])
-        #dt2[i] = tang[i]/np.sqrt(tang[i]*tang[i] + rad[i]*rad[i])
-        #dt2[i] = tang[i]#/rad[i]
-        err = ((1.0 - v[2])*np.cos(ang)*np.cos(ang) + v[2])**0.25
-        dt2[i] = tang[i]/rad[i]
+        tang[i] = np.sqrt(np.cos(ang)**2 + (v[2]*np.sin(ang))**2)* 2.0* np.pi / steps
+        #tangsX[i] = np.sin(ang)*v[2] * np.pi / steps
+        #tangsY[i] = -np.cos(ang) * np.pi  / steps
+        #radsX[i] = -np.cos(ang)*v[2]
+        #radsY[i] = np.sin(ang)
+        dt2[i] = tang[i]/np.sqrt(tang[i]*tang[i] + rad[i]*rad[i])
+        #dt2[i] = tang[i]/rad[i]
+        #dt2[i] = np.pi /(steps*rad[i])
+        #dt2[i] = np.arccos(rad[i]/np.sqrt(rad[i]*rad[i]+tang[i]*tang[i]))
 
         ssx[i] = p_tv[0]
         ssy[i] = p_tv[1]
@@ -341,20 +344,49 @@ def jacobian_slice_theta(v):
         s += f_x[i]*dt[i]
         s2 += f_x[i]*dt2[i]
 
-    fig, ax = plt.subplots()
+    #fig, ax = plt.subplots()
     #ax.set_aspect('equal')
     #for i in range(0, steps, 1):
     #    ax.plot([qq[i], qq[i]+tangsX[i]], [pp[i], pp[i] + tangsY[i]])
     #ax.plot(a,f_x, color='red')
     #ax.plot(a,tang,color='blue')
-    ax.plot(a,e,color='red')
-    ax.plot(a,e2,color='green')
-    #ax.plot(a,e,color='blue')
+    #ax.plot(a,dt2/(math.pi * 2.0 / steps),color=col)
+    #ax.plot(a,dt/(math.pi * 2.0 / steps),color=col)
+    ax.plot(a,(dt2-dt/(math.pi * 2.0 / steps))**2,color=col)
+    #ax.plot(a,e,color=col)
     #ax.plot(a,e2,color='green')
     #ax.scatter(qq, pp)
     #ax.scatter(ssx, ssy)
+    """
+    for i in range(0, steps, 1):
+        ax.plot([qq[i], ssx[i]], [pp[i], ssy[i]])
+    for i in range(0, steps, 1):
+        t = (i + 0.5)/steps
+        ang =  t * np.pi + 0.5 * np.pi
+        delt = math.pi / steps
+        n = np.sqrt((np.cos(ang)*v[2])**2 + np.sin(ang)**2)
+        n2 = np.sqrt((np.sin(ang)*v[2])**2 + np.cos(ang)**2)
+        p_circleRad = (-np.cos(ang)*v[2]/n, np.sin(ang)/n)
+        p_circleRad2 = (-np.cos(ang), np.sin(ang))
+        newAng = np.arccos(p_circleRad[0])
+        p_tan = (-np.sin(newAng)*delt/n, np.cos(newAng)*delt/n)
+        ax.scatter(p_circleRad[0], p_circleRad[1], color='green')
+        ax.plot([np.cos(newAng), np.cos(newAng)+p_tan[0]], [np.sin(newAng), np.sin(newAng)+p_tan[1]])
+        #ax.plot([ssx[i], ssx[i]+p_tan[0]], [ssy[i], ssy[i]+p_tan[1]])
+        #ax.plot([ssx[i], ssx[i]+p_tan[0]], [ssy[i], ssy[i]+p_tan[1]])
+    """
     #ax.scatter(qq2, pp2)
     ax.grid()
-    plt.show()
 
-jacobian_slice_theta(np.array([-0.5, 0.0, 0.5])) 
+fig, ax = plt.subplots()
+for i in range(0, 30, 1):
+    v_z = (i + 0.5)/30
+    jacobian_slice_theta(v_z, ax, (1.0*v_z, 1.0*v_z, 0.0)) 
+  
+#jacobian_slice_theta(0.999/(np.sqrt(0.1*0.1+0.999*0.999)), ax, 'red') 
+#jacobian_slice_theta(0.5/(np.sqrt(0.5)), ax, 'green') 
+#jacobian_slice_theta(0.1/(np.sqrt(0.1*0.1+0.999*0.999)), ax, 'blue') 
+#jacobian_slice_theta(np.array([-0.1, 0.0, 0.999]), ax, 'red') 
+#jacobian_slice_theta(np.array([-0.5, 0.0, 0.5]), ax, 'green') 
+#jacobian_slice_theta(np.array([-0.999, 0.0, 0.1]), ax, 'blue') 
+plt.show()
