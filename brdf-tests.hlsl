@@ -538,9 +538,9 @@ void csRtScene(uint3 dispatchThreadID : SV_DispatchThreadID)
         }
 
         float3 diff, spec;
-        lightingSGAnalytic(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
+        //lightingSGAnalytic(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
         //lightingSG(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
-        //lighting(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
+        lighting(seed, worldPos, roughness, rh.n, ray.d, diff, spec);
         col = diff*alb + spec + e;
     }
 
